@@ -1,9 +1,26 @@
+#include "vulkan/vk_platform.h"
+#include "vulkan/vulkan.hpp"
+#include "vulkan/vulkan_enums.hpp"
+#include "vulkan/vulkan_structs.hpp"
 #include <GLFW/glfw3.h>
+#include <cstdio>
+#include <iostream>
+#include <print>
+#include <vector>
+#include <vulkan/vulkan_raii.hpp>
+
+#ifdef NDEBUG
+constexpr bool enableValidationLayers = false;
+#else
+constexpr bool enableValidationLayers = true;
+#endif
 
 constexpr auto WIDTH = 1920;
 constexpr auto HEIGHT = 1920;
 
 namespace vke {
+
+const std::vector<char const *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
 class TriApp {
   public:
@@ -15,7 +32,31 @@ class TriApp {
     void createInstance();
     void mainLoop();
     void cleanup();
+    auto getRequiredInstanceExtensions() -> std::vector<const char *>;
+    void pickPhysicalDevice();
+    void createLogicalDevice();
+    auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
+    // Debug functions
+    void setUpDebugMessenger();
+    static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
+        vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type,
+        const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData) {
+        std::println(stderr, "Validation layer: type '{}' msg: '{}'", to_string(type),
+                     pCallbackData->pMessage);
+
+        // Just to diable the unused parameter error
+        std::println("Severity: '{}' \n UserData: '{}'", to_string(severity), pUserData);
+        return vk::False;
+    }
+    vk::raii::DebugUtilsMessengerEXT m_debugMessenger = nullptr;
 
     GLFWwindow *m_window{};
+    vk::raii::Context m_context{};
+    vk::raii::Instance m_instance = nullptr;
+    vk::raii::PhysicalDevice m_physicalDevice = nullptr;
+    std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
+    vk::raii::Device m_device = nullptr;
+    vk::PhysicalDeviceFeatures m_deviceFeatures{};
+    vk::raii::Queue m_graphicsQueue;
 };
 } // namespace vke
