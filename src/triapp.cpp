@@ -3,6 +3,7 @@
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_core.h"
 #include "vulkan/vulkan_enums.hpp"
+#include "vulkan/vulkan_handles.hpp"
 #include "vulkan/vulkan_raii.hpp"
 #include "vulkan/vulkan_structs.hpp"
 #include <algorithm>
@@ -162,11 +163,14 @@ void TriApp::pickPhysicalDevice() {
 
 void TriApp::createLogicalDevice() {
     auto queueFP = m_physicalDevice.getQueueFamilyProperties();
-    auto graphicsQueueFP = std::ranges::find_if(queueFP, [](auto const &qfp) {
-        return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);
-    });
-    auto graphicsIndex =
-        static_cast<std::uint32_t>(std::distance(queueFP.begin(), graphicsQueueFP));
+    std::uint32_t queueIndex = 0;
+    for (std::uint32_t qfpIndex = 0; qfpIndex < queueFP.size(); ++qfpIndex) {
+        if ((queueFP[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
+            m_physicalDevice.getSurfaceSupportKHR(qfpIndex, *m_surface)) {
+            queueIndex = qfpIndex;
+            break;
+        }
+    }
     vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
                        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
         featureChain{
@@ -175,9 +179,7 @@ void TriApp::createLogicalDevice() {
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(vk::True)};
     auto const priority = 0.5f;
     auto deviceQueueCI = vk::DeviceQueueCreateInfo{};
-    deviceQueueCI.setQueueFamilyIndex(graphicsIndex)
-        .setQueueCount(1)
-        .setPQueuePriorities(&priority);
+    deviceQueueCI.setQueueFamilyIndex(queueIndex).setQueueCount(1).setPQueuePriorities(&priority);
     auto deviceCI = vk::DeviceCreateInfo{};
     deviceCI.setPNext(&featureChain.get<vk::PhysicalDeviceFeatures2>())
         .setQueueCreateInfoCount(1)
@@ -185,7 +187,15 @@ void TriApp::createLogicalDevice() {
         .setEnabledExtensionCount(static_cast<std::uint32_t>(requiredDeviceExtension.size()))
         .setPpEnabledExtensionNames(requiredDeviceExtension.data());
     m_device = vk::raii::Device(m_physicalDevice, deviceCI);
-    m_graphicsQueue = vk::raii::Queue(m_device, graphicsIndex, 0);
+    m_graphicsQueue = vk::raii::Queue(m_device, queueIndex, 0);
+}
+
+void TriApp::createSurface() {
+    auto _s = VkSurfaceKHR{};
+    if (glfwCreateWindowSurface(*m_instance, m_window, nullptr, &_s)) {
+        throw std::runtime_error("Failed to create window surface!");
+    }
+    m_surface = vk::raii::SurfaceKHR(m_instance, _s);
 }
 
 void TriApp::mainLoop() {

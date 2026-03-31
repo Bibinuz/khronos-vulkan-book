@@ -33,6 +33,7 @@ class TriApp {
     void mainLoop();
     void cleanup();
     auto getRequiredInstanceExtensions() -> std::vector<const char *>;
+    void createSurface();
     void pickPhysicalDevice();
     void createLogicalDevice();
     auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
@@ -48,13 +49,14 @@ class TriApp {
         std::println("Severity: '{}' \n UserData: '{}'", to_string(severity), pUserData);
         return vk::False;
     }
-    vk::raii::DebugUtilsMessengerEXT m_debugMessenger = nullptr;
+    std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
     GLFWwindow *m_window{};
     vk::raii::Context m_context{};
     vk::raii::Instance m_instance = nullptr;
+    vk::raii::DebugUtilsMessengerEXT m_debugMessenger = nullptr;
+    vk::raii::SurfaceKHR m_surface = nullptr;
     vk::raii::PhysicalDevice m_physicalDevice = nullptr;
-    std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
     vk::raii::Device m_device = nullptr;
     vk::PhysicalDeviceFeatures m_deviceFeatures{};
     vk::raii::Queue m_graphicsQueue;
