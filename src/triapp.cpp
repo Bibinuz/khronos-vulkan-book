@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <print>
 #include <stdexcept>
 #include <string>
@@ -25,6 +26,7 @@ void TriApp::run() {
 }
 
 void TriApp::initWindow() {
+    glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     m_window = glfwCreateWindow(WIDTH, HEIGHT, "vulkan_engine", nullptr, nullptr);
@@ -32,9 +34,16 @@ void TriApp::initWindow() {
 
 void TriApp::initVulkan() {
     createInstance();
+    std::println("Instance Created");
     setUpDebugMessenger();
+    createSurface();
+    std::println("Surface Created");
     pickPhysicalDevice();
+    std::println("Picked physical device");
     createLogicalDevice();
+    std::println("Logical device Created");
+    createSwapChain();
+    std::println("Swapchain Created");
 }
 
 void TriApp::createInstance() {
@@ -192,10 +201,78 @@ void TriApp::createLogicalDevice() {
 
 void TriApp::createSurface() {
     auto _s = VkSurfaceKHR{};
-    if (glfwCreateWindowSurface(*m_instance, m_window, nullptr, &_s)) {
+    if (glfwCreateWindowSurface(*m_instance, m_window, nullptr, &_s) != 0) {
         throw std::runtime_error("Failed to create window surface!");
     }
     m_surface = vk::raii::SurfaceKHR(m_instance, _s);
+}
+
+auto TriApp::chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats)
+    -> vk::SurfaceFormatKHR {
+    const auto formatIt = std::ranges::find_if(availableFormats, [](const auto &format) {
+        return format.format == vk::Format::eB8G8R8A8Srgb &&
+               format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
+    });
+    return formatIt != availableFormats.end() ? *formatIt : availableFormats[0];
+}
+
+auto TriApp::chooseSwapPresentMode(const std::vector<vk::PresentModeKHR> &availableModes)
+    -> vk::PresentModeKHR {
+    assert(std::ranges::any_of(availableModes,
+                               [](auto mode) { return mode == vk::PresentModeKHR::eFifo; }));
+    return std::ranges::any_of(
+               availableModes,
+               [](const auto value) { return vk::PresentModeKHR::eMailbox == value; })
+               ? vk::PresentModeKHR::eMailbox
+               : vk::PresentModeKHR::eFifo;
+}
+auto TriApp::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) //
+    -> vk::Extent2D {
+    if (capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max()) {
+        return capabilities.currentExtent;
+    }
+    std ::int32_t width{}, height{};
+    glfwGetFramebufferSize(m_window, &width, &height);
+    return {std::clamp<std::uint32_t>(static_cast<std::uint32_t>(width),
+                                      capabilities.minImageExtent.width,
+                                      capabilities.maxImageExtent.width),
+            std::clamp<std::uint32_t>(static_cast<std::uint32_t>(height),
+                                      capabilities.minImageExtent.height,
+                                      capabilities.maxImageExtent.height)};
+}
+
+auto TriApp::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilities) //
+    -> std::uint32_t {
+    auto minImageCount = std::max(3u, capabilities.minImageCount);
+    if ((0 < capabilities.maxImageCount) && (capabilities.maxImageCount < minImageCount)) {
+        minImageCount = capabilities.maxImageCount;
+    }
+    return minImageCount;
+}
+
+void TriApp::createSwapChain() {
+    auto surfCap = m_physicalDevice.getSurfaceCapabilitiesKHR(*m_surface);
+    m_swapChainExtent = chooseSwapExtent(surfCap);
+    auto minImageCount = chooseSwapMinImageCount(surfCap);
+    auto availableFormats = m_physicalDevice.getSurfaceFormatsKHR(*m_surface);
+    m_swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
+    auto presentModes = m_physicalDevice.getSurfacePresentModesKHR(*m_surface);
+    // std::uint32_t imageCount = surfCap.minImageCount + 1;
+    auto swapChainCI = vk::SwapchainCreateInfoKHR{};
+    swapChainCI.setSurface(*m_surface)
+        .setMinImageCount(minImageCount)
+        .setImageFormat(m_swapChainSurfaceFormat.format)
+        .setImageColorSpace(m_swapChainSurfaceFormat.colorSpace)
+        .setImageExtent(m_swapChainExtent)
+        .setImageArrayLayers(1)
+        .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
+        .setPreTransform(surfCap.currentTransform)
+        .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
+        .setPresentMode(chooseSwapPresentMode(presentModes))
+        .setClipped(vk::True)
+        .setOldSwapchain(nullptr);
+    m_swapChain = vk::raii::SwapchainKHR(m_device, swapChainCI);
+    m_swapChainImages = m_swapChain.getImages();
 }
 
 void TriApp::mainLoop() {

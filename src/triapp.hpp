@@ -32,11 +32,22 @@ class TriApp {
     void createInstance();
     void mainLoop();
     void cleanup();
-    auto getRequiredInstanceExtensions() -> std::vector<const char *>;
     void createSurface();
     void pickPhysicalDevice();
     void createLogicalDevice();
+    void createSwapChain();
+
+    // Helper functions
+    auto getRequiredInstanceExtensions() -> std::vector<const char *>;
     auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
+    auto chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats)
+        -> vk::SurfaceFormatKHR;
+    auto chooseSwapPresentMode(const std::vector<vk::PresentModeKHR> &availableModes)
+        -> vk::PresentModeKHR;
+    auto chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) //
+        -> vk::Extent2D;
+    auto chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilities) //
+        -> std::uint32_t;
     // Debug functions
     void setUpDebugMessenger();
     static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
@@ -51,7 +62,7 @@ class TriApp {
     }
     std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
-    GLFWwindow *m_window{};
+    GLFWwindow *m_window = nullptr;
     vk::raii::Context m_context{};
     vk::raii::Instance m_instance = nullptr;
     vk::raii::DebugUtilsMessengerEXT m_debugMessenger = nullptr;
@@ -59,6 +70,10 @@ class TriApp {
     vk::raii::PhysicalDevice m_physicalDevice = nullptr;
     vk::raii::Device m_device = nullptr;
     vk::PhysicalDeviceFeatures m_deviceFeatures{};
-    vk::raii::Queue m_graphicsQueue;
+    vk::raii::Queue m_graphicsQueue = nullptr;
+    vk::Extent2D m_swapChainExtent{};
+    vk::SurfaceFormatKHR m_swapChainSurfaceFormat{};
+    vk::raii::SwapchainKHR m_swapChain = nullptr;
+    std::vector<vk::Image> m_swapChainImages{};
 };
 } // namespace vke
