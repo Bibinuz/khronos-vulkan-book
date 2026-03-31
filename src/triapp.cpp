@@ -7,6 +7,7 @@
 #include "vulkan/vulkan_raii.hpp"
 #include "vulkan/vulkan_structs.hpp"
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
@@ -44,6 +45,8 @@ void TriApp::initVulkan() {
     std::println("Logical device Created");
     createSwapChain();
     std::println("Swapchain Created");
+    createImageViews();
+    std::println("Image views created");
 }
 
 void TriApp::createInstance() {
@@ -273,6 +276,24 @@ void TriApp::createSwapChain() {
         .setOldSwapchain(nullptr);
     m_swapChain = vk::raii::SwapchainKHR(m_device, swapChainCI);
     m_swapChainImages = m_swapChain.getImages();
+}
+
+void TriApp::createImageViews() {
+    assert(m_swapChainImageViews.empty());
+    auto eI = vk::ComponentSwizzle::eIdentity;
+    auto components = vk::ComponentMapping{};
+    components.setR(eI).setG(eI).setB(eI).setA(eI);
+    auto subResRange = vk::ImageSubresourceRange{};
+    subResRange.setAspectMask(vk::ImageAspectFlagBits::eColor).setLevelCount(1).setLayerCount(1);
+    auto imageViewCI = vk::ImageViewCreateInfo{};
+    imageViewCI.setViewType(vk::ImageViewType::e2D)
+        .setFormat(m_swapChainSurfaceFormat.format)
+        .setSubresourceRange(subResRange)
+        .setComponents(components);
+    for (auto &image : m_swapChainImages) {
+        imageViewCI.image = image;
+        m_swapChainImageViews.emplace_back(m_device, imageViewCI);
+    }
 }
 
 void TriApp::mainLoop() {

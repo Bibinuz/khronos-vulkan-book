@@ -36,6 +36,7 @@ class TriApp {
     void pickPhysicalDevice();
     void createLogicalDevice();
     void createSwapChain();
+    void createImageViews();
 
     // Helper functions
     auto getRequiredInstanceExtensions() -> std::vector<const char *>;
@@ -62,7 +63,7 @@ class TriApp {
     }
     std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
-    GLFWwindow *m_window = nullptr;
+    GLFWwindow *m_window{};
     vk::raii::Context m_context{};
     vk::raii::Instance m_instance = nullptr;
     vk::raii::DebugUtilsMessengerEXT m_debugMessenger = nullptr;
@@ -75,5 +76,6 @@ class TriApp {
     vk::SurfaceFormatKHR m_swapChainSurfaceFormat{};
     vk::raii::SwapchainKHR m_swapChain = nullptr;
     std::vector<vk::Image> m_swapChainImages{};
+    std::vector<vk::raii::ImageView> m_swapChainImageViews{};
 };
 } // namespace vke
