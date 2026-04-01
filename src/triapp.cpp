@@ -10,6 +10,8 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
 #include <limits>
 #include <print>
@@ -294,6 +296,42 @@ void TriApp::createImageViews() {
         imageViewCI.image = image;
         m_swapChainImageViews.emplace_back(m_device, imageViewCI);
     }
+}
+
+void TriApp::createGraphicsPipeline() {
+    auto shaderCode = readFile("/shaders/slang.spv");
+    // Create shader modules pending
+    auto shaderModule = createShaderModule(shaderCode);
+    auto vertShaderStageInfo = vk::PipelineShaderStageCreateInfo{};
+    vertShaderStageInfo.setStage(vk::ShaderStageFlagBits::eVertex)
+        .setModule(shaderModule)
+        .setPName("vertMain");
+    auto fragShaderStageInfo = vk::PipelineShaderStageCreateInfo{};
+    fragShaderStageInfo.setStage(vk::ShaderStageFlagBits::eFragment)
+        .setModule(shaderModule)
+        .setPName("fragMain");
+    vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+    std::cout << shaderStages << std::endl;
+}
+
+auto TriApp::createShaderModule(const std::vector<char> &code) -> const vk::raii::ShaderModule {
+    auto shaderModuleCI = vk::ShaderModuleCreateInfo{};
+    shaderModuleCI.setCodeSize(code.size() * sizeof(char))
+        .setPCode(reinterpret_cast<const std::uint32_t *>(code.data()));
+    vk::raii::ShaderModule shaderModule{m_device, shaderModuleCI};
+    return shaderModule;
+}
+
+auto TriApp::readFile(const std::string &fileName) -> std::vector<char> {
+    std::ifstream file(fileName, std::ios::ate | std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file: " + fileName);
+    }
+    std::vector<char> buffer(static_cast<std::size_t>(file.tellg()));
+    file.seekg(0, std::ios::beg);
+    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    file.close();
+    return buffer;
 }
 
 void TriApp::mainLoop() {

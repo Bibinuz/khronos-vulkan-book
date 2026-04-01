@@ -37,6 +37,7 @@ class TriApp {
     void createLogicalDevice();
     void createSwapChain();
     void createImageViews();
+    void createGraphicsPipeline();
 
     // Helper functions
     auto getRequiredInstanceExtensions() -> std::vector<const char *>;
@@ -49,6 +50,9 @@ class TriApp {
         -> vk::Extent2D;
     auto chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilities) //
         -> std::uint32_t;
+    static auto readFile(const std::string &filename) -> std::vector<char>;
+    [[nodiscard]] auto createShaderModule(const std::vector<char> &conde)
+        -> const vk::raii::ShaderModule;
     // Debug functions
     void setUpDebugMessenger();
     static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(

@@ -1,4 +1,4 @@
-project(vulkan-engine-ext)
+project(vulkan-engine)
 
 # extract src.zip
 file(ARCHIVE_EXTRACT INPUT "${CMAKE_CURRENT_SOURCE_DIR}/src.zip" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -78,26 +78,18 @@ target_sources(vma PRIVATE
   vk_mem_alloc.cpp
 )
 
-# setup tiny_obj_loader library
-message(STATUS "[tiny_obj_loader]")
-add_library(tinyobjloader INTERFACE)
-add_library(tinyobjloader::tinyobjloader ALIAS tinyobjloader)
-target_include_directories(tinyobjloader INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-
-
 # ignore compiler warnings
 target_compile_options(vma PRIVATE -w)
 
 # declare ext library target
 add_library(${PROJECT_NAME} INTERFACE)
-add_library(vulkan-engine::ext ALIAS ${PROJECT_NAME})
+add_library(learn-vk::ext ALIAS ${PROJECT_NAME})
 
 # link to all dependencies
 target_link_libraries(${PROJECT_NAME} INTERFACE
   glm::glm
   imgui::imgui
   vma::vma
-  tinyobjloader::tinyobjloader
 )
 
 # setup preprocessor defines

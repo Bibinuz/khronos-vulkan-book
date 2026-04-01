@@ -21,7 +21,7 @@ add_executable(${PROJECT_NAME})
 
 # link to ext target
 target_link_libraries(${PROJECT_NAME} PRIVATE
-  vulkan-engine::ext
+  learn-vk::ext
 )
 
 # setup precompiled header
