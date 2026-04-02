@@ -15,6 +15,7 @@
 #include <iterator>
 #include <limits>
 #include <print>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -49,6 +50,8 @@ void TriApp::initVulkan() {
     std::println("Swapchain Created");
     createImageViews();
     std::println("Image views created");
+    createGraphicsPipeline();
+    std::println("Graphics pipeline layout created");
 }
 
 void TriApp::createInstance() {
@@ -152,9 +155,10 @@ auto TriApp::isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) ->
         });
     auto features =
         physicalDevice
-            .template getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
+            .template getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features,
                                    vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
     bool supportsReqFeat =
+        features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
         features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
         features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>()
             .extendedDynamicState;
@@ -185,10 +189,11 @@ void TriApp::createLogicalDevice() {
             break;
         }
     }
-    vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
+    vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features,
                        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
         featureChain{
             vk::PhysicalDeviceFeatures2{},
+            vk::PhysicalDeviceVulkan11Features{}.setShaderDrawParameters(vk::True),
             vk::PhysicalDeviceVulkan13Features{}.setDynamicRendering(vk::True),
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(vk::True)};
     auto const priority = 0.5f;
@@ -299,8 +304,7 @@ void TriApp::createImageViews() {
 }
 
 void TriApp::createGraphicsPipeline() {
-    auto shaderCode = readFile("/shaders/slang.spv");
-    // Create shader modules pending
+    auto shaderCode = readFile("./shaders/slang.spv");
     auto shaderModule = createShaderModule(shaderCode);
     auto vertShaderStageInfo = vk::PipelineShaderStageCreateInfo{};
     vertShaderStageInfo.setStage(vk::ShaderStageFlagBits::eVertex)
@@ -310,8 +314,41 @@ void TriApp::createGraphicsPipeline() {
     fragShaderStageInfo.setStage(vk::ShaderStageFlagBits::eFragment)
         .setModule(shaderModule)
         .setPName("fragMain");
-    vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-    std::cout << shaderStages << std::endl;
+    auto shaderStages =
+        std::vector<vk::PipelineShaderStageCreateInfo>{vertShaderStageInfo, fragShaderStageInfo};
+    // auto vertexInputCI = vk::PipelineVertexInputStateCreateInfo{};
+    auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo{};
+    inputAssembly.setTopology(vk::PrimitiveTopology::eTriangleList);
+    auto viewPortStateCI = vk::PipelineViewportStateCreateInfo{};
+    viewPortStateCI.setViewportCount(1).setScissorCount(1);
+    auto rasterizerCI = vk::PipelineRasterizationStateCreateInfo{};
+    rasterizerCI.setDepthClampEnable(vk::False)
+        .setRasterizerDiscardEnable(vk::False)
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setCullMode(vk::CullModeFlagBits::eBack)
+        .setFrontFace(vk::FrontFace::eClockwise)
+        .setDepthBiasEnable(vk::False)
+        .setLineWidth(1.0f);
+    auto multisampling = vk::PipelineMultisampleStateCreateInfo{};
+    multisampling.setRasterizationSamples(vk::SampleCountFlagBits::e1)
+        .setSampleShadingEnable(vk::False);
+    auto colorBlendAttachment = vk::PipelineColorBlendAttachmentState{};
+    colorBlendAttachment.setBlendEnable(vk::False).setColorWriteMask(
+        vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+        vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
+    auto colorBlendingCI = vk::PipelineColorBlendStateCreateInfo{};
+    colorBlendingCI.setLogicOpEnable(vk::False)
+        .setLogicOp(vk::LogicOp::eCopy)
+        .setAttachmentCount(1)
+        .setPAttachments(&colorBlendAttachment);
+    auto dynamicStates =
+        std::vector<vk::DynamicState>{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+    auto dynamicStateCI = vk::PipelineDynamicStateCreateInfo{};
+    dynamicStateCI.setDynamicStateCount(static_cast<std::uint32_t>(dynamicStates.size()))
+        .setPDynamicStates(dynamicStates.data());
+    auto pipelineLayoutCI = vk::PipelineLayoutCreateInfo{};
+    pipelineLayoutCI.setSetLayoutCount(0).setPushConstantRangeCount(0);
+    m_pipelineLayount = vk::raii::PipelineLayout(m_device, pipelineLayoutCI);
 }
 
 auto TriApp::createShaderModule(const std::vector<char> &code) -> const vk::raii::ShaderModule {

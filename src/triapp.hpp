@@ -81,5 +81,6 @@ class TriApp {
     vk::raii::SwapchainKHR m_swapChain = nullptr;
     std::vector<vk::Image> m_swapChainImages{};
     std::vector<vk::raii::ImageView> m_swapChainImageViews{};
+    vk::raii::PipelineLayout m_pipelineLayount = nullptr;
 };
 } // namespace vke
