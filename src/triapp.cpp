@@ -21,6 +21,19 @@
 
 namespace vke {
 
+void TriApp::mainLoop() {
+    while (!glfwWindowShouldClose(m_window)) {
+        glfwPollEvents();
+        drawFrame();
+    }
+    m_device.waitIdle();
+}
+
+void TriApp::cleanup() {
+    glfwDestroyWindow(m_window);
+    glfwTerminate();
+}
+
 void TriApp::run() {
     initWindow();
     initVulkan();
@@ -55,6 +68,40 @@ void TriApp::initVulkan() {
     std::println("Command pool created");
     createCommandBuffer();
     std::println("Command buffer created");
+    createSyncObjects();
+    std::println("Sync objects created");
+}
+
+void TriApp::drawFrame() {
+    constexpr auto maxUINT64 = std::numeric_limits<std::uint64_t>::max();
+    auto fenceResult         = m_device.waitForFences(
+        *m_drawFence, vk::True, maxUINT64); // Max uint to effectively disables the timeout
+    if (fenceResult != vk::Result::eSuccess) {
+        throw std::runtime_error("failed to wait for fence!");
+    }
+    m_device.resetFences(*m_drawFence);
+    auto [result, imageIndex] = m_swapChain.acquireNextImage(
+        maxUINT64, *m_presentCompleteSemaphore, nullptr); // Also max uint to diable timeout
+    recordCommandBuffer(imageIndex);
+    m_queue.waitIdle();
+    auto waitDestinationStageMask =
+        vk::PipelineStageFlags{vk::PipelineStageFlagBits::eColorAttachmentOutput};
+    auto const submitInfo = vk::SubmitInfo{}
+                                .setWaitSemaphoreCount(1)
+                                .setPWaitSemaphores(&*m_presentCompleteSemaphore)
+                                .setPWaitDstStageMask(&waitDestinationStageMask)
+                                .setCommandBufferCount(1)
+                                .setPCommandBuffers(&*m_commandBuffer)
+                                .setSignalSemaphoreCount(1)
+                                .setPSignalSemaphores(&*m_renderFinishedSemaphore);
+    m_queue.submit(submitInfo, *m_drawFence);
+    auto const presentInfoKHR = vk::PresentInfoKHR{}
+                                    .setWaitSemaphoreCount(1)
+                                    .setPWaitSemaphores(&*m_renderFinishedSemaphore)
+                                    .setSwapchainCount(1)
+                                    .setPSwapchains(&*m_swapChain)
+                                    .setPImageIndices(&imageIndex);
+    result                    = m_queue.presentKHR(presentInfoKHR);
 }
 
 void TriApp::createInstance() {
@@ -207,8 +254,8 @@ void TriApp::createLogicalDevice() {
         .setPQueueCreateInfos(&deviceQueueCI)
         .setEnabledExtensionCount(static_cast<std::uint32_t>(requiredDeviceExtension.size()))
         .setPpEnabledExtensionNames(requiredDeviceExtension.data());
-    m_device        = vk::raii::Device(m_physicalDevice, deviceCI);
-    m_graphicsQueue = vk::raii::Queue(m_device, m_queueIndex, 0);
+    m_device = vk::raii::Device(m_physicalDevice, deviceCI);
+    m_queue  = vk::raii::Queue(m_device, m_queueIndex, 0);
 }
 
 void TriApp::createSurface() {
@@ -385,6 +432,13 @@ void TriApp::createCommandBuffer() {
     m_commandBuffer = std::move(vk::raii::CommandBuffers(m_device, commandBufferAI).front());
 }
 
+void TriApp::createSyncObjects() {
+    m_presentCompleteSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo{});
+    m_renderFinishedSemaphore  = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo{});
+    m_drawFence                = vk::raii::Fence(
+        m_device, vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
+}
+
 auto TriApp::createShaderModule(const std::vector<char> &code) -> const vk::raii::ShaderModule {
     auto shaderModuleCI = vk::ShaderModuleCreateInfo{};
     shaderModuleCI.setCodeSize(code.size() * sizeof(char))
@@ -405,15 +459,73 @@ auto TriApp::readFile(const std::string &fileName) -> std::vector<char> {
     return buffer;
 }
 
-void TriApp::mainLoop() {
-    while (!glfwWindowShouldClose(m_window)) {
-        glfwPollEvents();
-    }
+void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
+    m_commandBuffer.begin({});
+
+    transition_image_layout(imageIndex, vk::ImageLayout::eUndefined,
+                            vk::ImageLayout::eColorAttachmentOptimal, {},
+                            vk::AccessFlagBits2::eColorAttachmentWrite,
+                            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+    auto clearColor     = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    auto attachmentInfo = vk::RenderingAttachmentInfo{};
+    attachmentInfo.setImageView(m_swapChainImageViews[imageIndex])
+        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+        .setLoadOp(vk::AttachmentLoadOp::eClear)
+        .setStoreOp(vk::AttachmentStoreOp::eStore)
+        .setClearValue(clearColor);
+    auto renderingInfo = vk::RenderingInfo{};
+    renderingInfo.setRenderArea(vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent))
+        .setLayerCount(1)
+        .setColorAttachmentCount(1)
+        .setPColorAttachments(&attachmentInfo);
+    m_commandBuffer.beginRendering(renderingInfo);
+    m_commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
+    m_commandBuffer.setViewport(0, vk::Viewport{}
+                                       .setX(0.0f)
+                                       .setY(0.0f)
+                                       .setWidth(static_cast<float>(m_swapChainExtent.width))
+                                       .setHeight(static_cast<float>(m_swapChainExtent.height))
+                                       .setMinDepth(0.0f)
+                                       .setMaxDepth(1.0f));
+    m_commandBuffer.setScissor(0, vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent));
+    // Num of vertices and instances to draw
+    m_commandBuffer.draw(3, 1, 0, 0);
+    m_commandBuffer.endRendering();
+
+    transition_image_layout(imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
+                            vk::ImageLayout::ePresentSrcKHR,
+                            vk::AccessFlagBits2::eColorAttachmentWrite, {},
+                            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                            vk::PipelineStageFlagBits2::eBottomOfPipe);
+    m_commandBuffer.end();
 }
 
-void TriApp::cleanup() {
-    glfwDestroyWindow(m_window);
-    glfwTerminate();
+void TriApp::transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout old_layout,
+                                     vk::ImageLayout new_layout, vk::AccessFlags2 src_access_mask,
+                                     vk::AccessFlags2 dst_acces_mask,
+                                     vk::PipelineStageFlags2 src_stage_mask,
+                                     vk::PipelineStageFlags2 dst_stage_mask) {
+    auto barrier = vk::ImageMemoryBarrier2{};
+    barrier.setSrcStageMask(src_stage_mask)
+        .setSrcAccessMask(src_access_mask)
+        .setDstStageMask(dst_stage_mask)
+        .setDstAccessMask(dst_acces_mask)
+        .setOldLayout(old_layout)
+        .setNewLayout(new_layout)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(m_swapChainImages[imageIndex])
+        .setSubresourceRange(vk::ImageSubresourceRange{}
+                                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                 .setBaseMipLevel(0)
+                                 .setLevelCount(1)
+                                 .setBaseArrayLayer(0)
+                                 .setLayerCount(1));
+    auto dependencyInfo = vk::DependencyInfo{};
+    dependencyInfo.setDependencyFlags({}).setImageMemoryBarrierCount(1).setPImageMemoryBarriers(
+        &barrier);
+    m_commandBuffer.pipelineBarrier2(dependencyInfo);
 }
 
 } // namespace vke

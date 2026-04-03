@@ -28,6 +28,7 @@ class TriApp {
     void initWindow();
     void initVulkan();
     void createInstance();
+    void drawFrame();
     void mainLoop();
     void cleanup();
     void createSurface();
@@ -38,6 +39,8 @@ class TriApp {
     void createGraphicsPipeline();
     void createCommandPool();
     void createCommandBuffer();
+    void createSyncObjects();
+
     // Helper functions
     auto getRequiredInstanceExtensions() -> std::vector<const char *>;
     auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
@@ -52,6 +55,13 @@ class TriApp {
     static auto readFile(const std::string &filename) -> std::vector<char>;
     [[nodiscard]] auto createShaderModule(const std::vector<char> &conde)
         -> const vk::raii::ShaderModule;
+    void recordCommandBuffer(std::uint32_t imageIndex);
+    void transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout old_layout,
+                                 vk::ImageLayout new_layout, vk::AccessFlags2 src_access_mask,
+                                 vk::AccessFlags2 dst_acces_mask,
+                                 vk::PipelineStageFlags2 src_stage_mask,
+                                 vk::PipelineStageFlags2 dst_stage_mask);
+
     // Debug functions
     void setUpDebugMessenger();
     static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
@@ -71,12 +81,15 @@ class TriApp {
     vk::raii::SurfaceKHR m_surface                    = nullptr;
     vk::raii::PhysicalDevice m_physicalDevice         = nullptr;
     vk::raii::Device m_device                         = nullptr;
-    vk::raii::Queue m_graphicsQueue                   = nullptr;
+    vk::raii::Queue m_queue                           = nullptr;
     vk::raii::SwapchainKHR m_swapChain                = nullptr;
     vk::raii::PipelineLayout m_pipelineLayout         = nullptr;
     vk::raii::Pipeline m_graphicsPipeline             = nullptr;
     vk::raii::CommandPool m_commandPool               = nullptr;
     vk::raii::CommandBuffer m_commandBuffer           = nullptr;
+    vk::raii::Semaphore m_presentCompleteSemaphore    = nullptr;
+    vk::raii::Semaphore m_renderFinishedSemaphore     = nullptr;
+    vk::raii::Fence m_drawFence                       = nullptr;
     GLFWwindow *m_window{};
     std::uint32_t m_queueIndex{};
     vk::raii::Context m_context{};
