@@ -1,4 +1,16 @@
 #include "triapp.hpp"
+
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <limits>
+#include <print>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
 #include "GLFW/glfw3.h"
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_core.h"
@@ -6,19 +18,6 @@
 #include "vulkan/vulkan_handles.hpp"
 #include "vulkan/vulkan_raii.hpp"
 #include "vulkan/vulkan_structs.hpp"
-#include <algorithm>
-#include <cassert>
-#include <cstdint>
-#include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <limits>
-#include <print>
-#include <span>
-#include <stdexcept>
-#include <string>
-#include <vector>
 
 namespace vke {
 
@@ -67,7 +66,7 @@ void TriApp::createInstance() {
         requiredLayers.assign(validationLayers.begin(), validationLayers.end());
     }
     // Check if validation layers are supported by vulkan implementation
-    auto layerProperties = m_context.enumerateInstanceLayerProperties();
+    auto layerProperties     = m_context.enumerateInstanceLayerProperties();
     auto unsuppoertedLayerIt = std::ranges::find_if(requiredLayers, [&layerProperties](
                                                                         auto const &requiredLayer) {
         return std::ranges::none_of(layerProperties, [requiredLayer](auto const &layerProperty) {
@@ -129,7 +128,7 @@ void TriApp::setUpDebugMessenger() {
 
 auto TriApp::getRequiredInstanceExtensions() -> std::vector<const char *> {
     auto glfwExtensionCount = std::uint32_t{0};
-    auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    auto glfwExtensions     = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
     std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
     if (enableValidationLayers) {
         extensions.push_back(vk::EXTDebugUtilsExtensionName);
@@ -138,9 +137,9 @@ auto TriApp::getRequiredInstanceExtensions() -> std::vector<const char *> {
 }
 
 auto TriApp::isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool {
-    bool supportsVk13 = physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
-    auto queueFamilies = physicalDevice.getQueueFamilyProperties();
-    bool supportsGraphics = std::ranges::any_of(queueFamilies, [](auto const &qfp) {
+    bool supportsVk13              = physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
+    auto queueFamilies             = physicalDevice.getQueueFamilyProperties();
+    bool supportsGraphics          = std::ranges::any_of(queueFamilies, [](auto const &qfp) {
         return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);
     });
     auto availableDeviceExtensions = physicalDevice.enumerateDeviceExtensionProperties();
@@ -153,10 +152,9 @@ auto TriApp::isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) ->
                                   requiredDeviceExtension) == 0;
                 });
         });
-    auto features =
-        physicalDevice
-            .template getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features,
-                                   vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+    auto features = physicalDevice.template getFeatures2<
+        vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
+        vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
     bool supportsReqFeat =
         features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
         features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
@@ -180,7 +178,7 @@ void TriApp::pickPhysicalDevice() {
 }
 
 void TriApp::createLogicalDevice() {
-    auto queueFP = m_physicalDevice.getQueueFamilyProperties();
+    auto queueFP             = m_physicalDevice.getQueueFamilyProperties();
     std::uint32_t queueIndex = 0;
     for (std::uint32_t qfpIndex = 0; qfpIndex < queueFP.size(); ++qfpIndex) {
         if ((queueFP[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
@@ -189,7 +187,8 @@ void TriApp::createLogicalDevice() {
             break;
         }
     }
-    vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features,
+    vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
+                       vk::PhysicalDeviceVulkan13Features,
                        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
         featureChain{
             vk::PhysicalDeviceFeatures2{},
@@ -197,7 +196,7 @@ void TriApp::createLogicalDevice() {
             vk::PhysicalDeviceVulkan13Features{}.setDynamicRendering(vk::True),
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(vk::True)};
     auto const priority = 0.5f;
-    auto deviceQueueCI = vk::DeviceQueueCreateInfo{};
+    auto deviceQueueCI  = vk::DeviceQueueCreateInfo{};
     deviceQueueCI.setQueueFamilyIndex(queueIndex).setQueueCount(1).setPQueuePriorities(&priority);
     auto deviceCI = vk::DeviceCreateInfo{};
     deviceCI.setPNext(&featureChain.get<vk::PhysicalDeviceFeatures2>())
@@ -205,7 +204,7 @@ void TriApp::createLogicalDevice() {
         .setPQueueCreateInfos(&deviceQueueCI)
         .setEnabledExtensionCount(static_cast<std::uint32_t>(requiredDeviceExtension.size()))
         .setPpEnabledExtensionNames(requiredDeviceExtension.data());
-    m_device = vk::raii::Device(m_physicalDevice, deviceCI);
+    m_device        = vk::raii::Device(m_physicalDevice, deviceCI);
     m_graphicsQueue = vk::raii::Queue(m_device, queueIndex, 0);
 }
 
@@ -261,12 +260,12 @@ auto TriApp::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilit
 }
 
 void TriApp::createSwapChain() {
-    auto surfCap = m_physicalDevice.getSurfaceCapabilitiesKHR(*m_surface);
-    m_swapChainExtent = chooseSwapExtent(surfCap);
-    auto minImageCount = chooseSwapMinImageCount(surfCap);
-    auto availableFormats = m_physicalDevice.getSurfaceFormatsKHR(*m_surface);
+    auto surfCap             = m_physicalDevice.getSurfaceCapabilitiesKHR(*m_surface);
+    m_swapChainExtent        = chooseSwapExtent(surfCap);
+    auto minImageCount       = chooseSwapMinImageCount(surfCap);
+    auto availableFormats    = m_physicalDevice.getSurfaceFormatsKHR(*m_surface);
     m_swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
-    auto presentModes = m_physicalDevice.getSurfacePresentModesKHR(*m_surface);
+    auto presentModes        = m_physicalDevice.getSurfacePresentModesKHR(*m_surface);
     // std::uint32_t imageCount = surfCap.minImageCount + 1;
     auto swapChainCI = vk::SwapchainCreateInfoKHR{};
     swapChainCI.setSurface(*m_surface)
@@ -281,13 +280,13 @@ void TriApp::createSwapChain() {
         .setPresentMode(chooseSwapPresentMode(presentModes))
         .setClipped(vk::True)
         .setOldSwapchain(nullptr);
-    m_swapChain = vk::raii::SwapchainKHR(m_device, swapChainCI);
+    m_swapChain       = vk::raii::SwapchainKHR(m_device, swapChainCI);
     m_swapChainImages = m_swapChain.getImages();
 }
 
 void TriApp::createImageViews() {
     assert(m_swapChainImageViews.empty());
-    auto eI = vk::ComponentSwizzle::eIdentity;
+    auto eI         = vk::ComponentSwizzle::eIdentity;
     auto components = vk::ComponentMapping{};
     components.setR(eI).setG(eI).setB(eI).setA(eI);
     auto subResRange = vk::ImageSubresourceRange{};
@@ -304,8 +303,8 @@ void TriApp::createImageViews() {
 }
 
 void TriApp::createGraphicsPipeline() {
-    auto shaderCode = readFile("./shaders/slang.spv");
-    auto shaderModule = createShaderModule(shaderCode);
+    auto shaderCode          = readFile("./shaders/slang.spv");
+    auto shaderModule        = createShaderModule(shaderCode);
     auto vertShaderStageInfo = vk::PipelineShaderStageCreateInfo{};
     vertShaderStageInfo.setStage(vk::ShaderStageFlagBits::eVertex)
         .setModule(shaderModule)
@@ -316,7 +315,7 @@ void TriApp::createGraphicsPipeline() {
         .setPName("fragMain");
     auto shaderStages =
         std::vector<vk::PipelineShaderStageCreateInfo>{vertShaderStageInfo, fragShaderStageInfo};
-    // auto vertexInputCI = vk::PipelineVertexInputStateCreateInfo{};
+    auto vertexInputCI = vk::PipelineVertexInputStateCreateInfo{};
     auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo{};
     inputAssembly.setTopology(vk::PrimitiveTopology::eTriangleList);
     auto viewPortStateCI = vk::PipelineViewportStateCreateInfo{};
@@ -348,7 +347,24 @@ void TriApp::createGraphicsPipeline() {
         .setPDynamicStates(dynamicStates.data());
     auto pipelineLayoutCI = vk::PipelineLayoutCreateInfo{};
     pipelineLayoutCI.setSetLayoutCount(0).setPushConstantRangeCount(0);
-    m_pipelineLayount = vk::raii::PipelineLayout(m_device, pipelineLayoutCI);
+    m_pipelineLayout         = vk::raii::PipelineLayout(m_device, pipelineLayoutCI);
+    auto pipelineRenderingCI = vk::PipelineRenderingCreateInfo{};
+    pipelineRenderingCI.setColorAttachmentCount(1).setPColorAttachmentFormats(
+        &m_swapChainSurfaceFormat.format);
+    auto pipelineCI = vk::GraphicsPipelineCreateInfo{};
+    pipelineCI.setPNext(&pipelineRenderingCI)
+        .setStageCount(2)
+        .setPStages(shaderStages.data())
+        .setPVertexInputState(&vertexInputCI)
+        .setPInputAssemblyState(&inputAssembly)
+        .setPViewportState(&viewPortStateCI)
+        .setPRasterizationState(&rasterizerCI)
+        .setPMultisampleState(&multisampling)
+        .setPColorBlendState(&colorBlendingCI)
+        .setPDynamicState(&dynamicStateCI)
+        .setLayout(m_pipelineLayout)
+        .setRenderPass(nullptr);
+    m_graphicsPipeline = vk::raii::Pipeline(m_device, nullptr, pipelineCI);
 }
 
 auto TriApp::createShaderModule(const std::vector<char> &code) -> const vk::raii::ShaderModule {

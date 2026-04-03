@@ -15,7 +15,7 @@ constexpr bool enableValidationLayers = false;
 constexpr bool enableValidationLayers = true;
 #endif
 
-constexpr auto WIDTH = 1920;
+constexpr auto WIDTH  = 1920;
 constexpr auto HEIGHT = 1920;
 
 namespace vke {
@@ -67,20 +67,21 @@ class TriApp {
     }
     std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
+    vk::raii::Instance m_instance                     = nullptr;
+    vk::raii::DebugUtilsMessengerEXT m_debugMessenger = nullptr;
+    vk::raii::SurfaceKHR m_surface                    = nullptr;
+    vk::raii::PhysicalDevice m_physicalDevice         = nullptr;
+    vk::raii::Device m_device                         = nullptr;
+    vk::raii::Queue m_graphicsQueue                   = nullptr;
+    vk::raii::SwapchainKHR m_swapChain                = nullptr;
+    vk::raii::PipelineLayout m_pipelineLayout         = nullptr;
+    vk::raii::Pipeline m_graphicsPipeline             = nullptr;
     GLFWwindow *m_window{};
     vk::raii::Context m_context{};
-    vk::raii::Instance m_instance = nullptr;
-    vk::raii::DebugUtilsMessengerEXT m_debugMessenger = nullptr;
-    vk::raii::SurfaceKHR m_surface = nullptr;
-    vk::raii::PhysicalDevice m_physicalDevice = nullptr;
-    vk::raii::Device m_device = nullptr;
     vk::PhysicalDeviceFeatures m_deviceFeatures{};
-    vk::raii::Queue m_graphicsQueue = nullptr;
     vk::Extent2D m_swapChainExtent{};
     vk::SurfaceFormatKHR m_swapChainSurfaceFormat{};
-    vk::raii::SwapchainKHR m_swapChain = nullptr;
     std::vector<vk::Image> m_swapChainImages{};
     std::vector<vk::raii::ImageView> m_swapChainImageViews{};
-    vk::raii::PipelineLayout m_pipelineLayount = nullptr;
 };
 } // namespace vke
