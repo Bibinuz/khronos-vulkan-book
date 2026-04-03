@@ -51,6 +51,10 @@ void TriApp::initVulkan() {
     std::println("Image views created");
     createGraphicsPipeline();
     std::println("Graphics pipeline layout created");
+    createCommandPool();
+    std::println("Command pool created");
+    createCommandBuffer();
+    std::println("Command buffer created");
 }
 
 void TriApp::createInstance() {
@@ -178,12 +182,11 @@ void TriApp::pickPhysicalDevice() {
 }
 
 void TriApp::createLogicalDevice() {
-    auto queueFP             = m_physicalDevice.getQueueFamilyProperties();
-    std::uint32_t queueIndex = 0;
+    auto queueFP = m_physicalDevice.getQueueFamilyProperties();
     for (std::uint32_t qfpIndex = 0; qfpIndex < queueFP.size(); ++qfpIndex) {
         if ((queueFP[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
             m_physicalDevice.getSurfaceSupportKHR(qfpIndex, *m_surface)) {
-            queueIndex = qfpIndex;
+            m_queueIndex = qfpIndex;
             break;
         }
     }
@@ -197,7 +200,7 @@ void TriApp::createLogicalDevice() {
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(vk::True)};
     auto const priority = 0.5f;
     auto deviceQueueCI  = vk::DeviceQueueCreateInfo{};
-    deviceQueueCI.setQueueFamilyIndex(queueIndex).setQueueCount(1).setPQueuePriorities(&priority);
+    deviceQueueCI.setQueueFamilyIndex(m_queueIndex).setQueueCount(1).setPQueuePriorities(&priority);
     auto deviceCI = vk::DeviceCreateInfo{};
     deviceCI.setPNext(&featureChain.get<vk::PhysicalDeviceFeatures2>())
         .setQueueCreateInfoCount(1)
@@ -205,7 +208,7 @@ void TriApp::createLogicalDevice() {
         .setEnabledExtensionCount(static_cast<std::uint32_t>(requiredDeviceExtension.size()))
         .setPpEnabledExtensionNames(requiredDeviceExtension.data());
     m_device        = vk::raii::Device(m_physicalDevice, deviceCI);
-    m_graphicsQueue = vk::raii::Queue(m_device, queueIndex, 0);
+    m_graphicsQueue = vk::raii::Queue(m_device, m_queueIndex, 0);
 }
 
 void TriApp::createSurface() {
@@ -365,6 +368,21 @@ void TriApp::createGraphicsPipeline() {
         .setLayout(m_pipelineLayout)
         .setRenderPass(nullptr);
     m_graphicsPipeline = vk::raii::Pipeline(m_device, nullptr, pipelineCI);
+}
+
+void TriApp::createCommandPool() {
+    auto poolCI = vk::CommandPoolCreateInfo{};
+    poolCI.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
+        .setQueueFamilyIndex(m_queueIndex);
+    m_commandPool = vk::raii::CommandPool(m_device, poolCI);
+}
+
+void TriApp::createCommandBuffer() {
+    auto commandBufferAI = vk::CommandBufferAllocateInfo{};
+    commandBufferAI.setCommandPool(m_commandPool)
+        .setLevel(vk::CommandBufferLevel::ePrimary)
+        .setCommandBufferCount(1);
+    m_commandBuffer = std::move(vk::raii::CommandBuffers(m_device, commandBufferAI).front());
 }
 
 auto TriApp::createShaderModule(const std::vector<char> &code) -> const vk::raii::ShaderModule {

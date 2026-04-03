@@ -3,8 +3,6 @@
 #include "vulkan/vulkan_enums.hpp"
 #include "vulkan/vulkan_structs.hpp"
 #include <GLFW/glfw3.h>
-#include <cstdio>
-#include <iostream>
 #include <print>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
@@ -38,7 +36,8 @@ class TriApp {
     void createSwapChain();
     void createImageViews();
     void createGraphicsPipeline();
-
+    void createCommandPool();
+    void createCommandBuffer();
     // Helper functions
     auto getRequiredInstanceExtensions() -> std::vector<const char *>;
     auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
@@ -76,7 +75,10 @@ class TriApp {
     vk::raii::SwapchainKHR m_swapChain                = nullptr;
     vk::raii::PipelineLayout m_pipelineLayout         = nullptr;
     vk::raii::Pipeline m_graphicsPipeline             = nullptr;
+    vk::raii::CommandPool m_commandPool               = nullptr;
+    vk::raii::CommandBuffer m_commandBuffer           = nullptr;
     GLFWwindow *m_window{};
+    std::uint32_t m_queueIndex{};
     vk::raii::Context m_context{};
     vk::PhysicalDeviceFeatures m_deviceFeatures{};
     vk::Extent2D m_swapChainExtent{};
