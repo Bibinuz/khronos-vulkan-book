@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -29,11 +30,6 @@ void TriApp::mainLoop() {
     m_device.waitIdle();
 }
 
-void TriApp::cleanup() {
-    glfwDestroyWindow(m_window);
-    glfwTerminate();
-}
-
 void TriApp::run() {
     initWindow();
     initVulkan();
@@ -44,8 +40,15 @@ void TriApp::run() {
 void TriApp::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     m_window = glfwCreateWindow(WIDTH, HEIGHT, "vulkan_engine", nullptr, nullptr);
+    glfwSetWindowUserPointer(m_window, this);
+    glfwSetFramebufferSizeCallback(m_window, framebufferResizeCallback);
+}
+
+void TriApp::framebufferResizeCallback(GLFWwindow *window, [[maybe_unused]] int width,
+                                       [[maybe_unused]] int height) {
+    auto app                  = reinterpret_cast<TriApp *>(glfwGetWindowUserPointer(window));
+    app->m_frameBufferResized = true;
 }
 
 void TriApp::initVulkan() {
@@ -66,7 +69,7 @@ void TriApp::initVulkan() {
     std::println("Graphics pipeline layout created");
     createCommandPool();
     std::println("Command pool created");
-    createCommandBuffer();
+    createCommandBuffers();
     std::println("Command buffer created");
     createSyncObjects();
     std::println("Sync objects created");
@@ -74,34 +77,59 @@ void TriApp::initVulkan() {
 
 void TriApp::drawFrame() {
     constexpr auto maxUINT64 = std::numeric_limits<std::uint64_t>::max();
-    auto fenceResult         = m_device.waitForFences(
-        *m_drawFence, vk::True, maxUINT64); // Max uint to effectively disables the timeout
+    auto fenceResult =
+        m_device.waitForFences(*m_inFlightFences[m_frameIndex], vk::True,
+                               maxUINT64); // Max uint to effectively disables the timeout
     if (fenceResult != vk::Result::eSuccess) {
         throw std::runtime_error("failed to wait for fence!");
     }
-    m_device.resetFences(*m_drawFence);
-    auto [result, imageIndex] = m_swapChain.acquireNextImage(
-        maxUINT64, *m_presentCompleteSemaphore, nullptr); // Also max uint to diable timeout
+    auto [result, imageIndex] =
+        m_swapChain.acquireNextImage(maxUINT64, *m_presentCompleteSemaphores[m_frameIndex],
+                                     nullptr); // Also max uint to diable timeout
+    if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR ||
+        m_frameBufferResized) {
+        recreateSwapChain();
+        return;
+    } else if (result != vk::Result::eSuccess) {
+        assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
+        throw std::runtime_error("Failed to acquire swap chain image!");
+    }
+
+    m_device.resetFences(*m_inFlightFences[m_frameIndex]);
+    m_commandBuffers[m_frameIndex].reset();
     recordCommandBuffer(imageIndex);
     m_queue.waitIdle();
     auto waitDestinationStageMask =
         vk::PipelineStageFlags{vk::PipelineStageFlagBits::eColorAttachmentOutput};
     auto const submitInfo = vk::SubmitInfo{}
                                 .setWaitSemaphoreCount(1)
-                                .setPWaitSemaphores(&*m_presentCompleteSemaphore)
+                                .setPWaitSemaphores(&*m_presentCompleteSemaphores[m_frameIndex])
                                 .setPWaitDstStageMask(&waitDestinationStageMask)
                                 .setCommandBufferCount(1)
-                                .setPCommandBuffers(&*m_commandBuffer)
+                                .setPCommandBuffers(&*m_commandBuffers[m_frameIndex])
                                 .setSignalSemaphoreCount(1)
-                                .setPSignalSemaphores(&*m_renderFinishedSemaphore);
-    m_queue.submit(submitInfo, *m_drawFence);
+                                .setPSignalSemaphores(&*m_renderFinishedSemaphores[m_frameIndex]);
+    m_queue.submit(submitInfo, *m_inFlightFences[m_frameIndex]);
     auto const presentInfoKHR = vk::PresentInfoKHR{}
                                     .setWaitSemaphoreCount(1)
-                                    .setPWaitSemaphores(&*m_renderFinishedSemaphore)
+                                    .setPWaitSemaphores(&*m_renderFinishedSemaphores[m_frameIndex])
                                     .setSwapchainCount(1)
                                     .setPSwapchains(&*m_swapChain)
                                     .setPImageIndices(&imageIndex);
     result                    = m_queue.presentKHR(presentInfoKHR);
+    switch (result) {
+    case vk::Result::eSuccess:
+        break;
+    case vk::Result::eSuboptimalKHR:
+    case vk::Result::eErrorOutOfDateKHR:
+        recreateSwapChain();
+        break;
+    default:
+        throw std::runtime_error(
+            "Something unexpected happened on vk::Queue::presentKHR (function drawFrame)");
+        break;
+    }
+    m_frameIndex = (m_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void TriApp::createInstance() {
@@ -188,12 +216,13 @@ auto TriApp::getRequiredInstanceExtensions() -> std::vector<const char *> {
 }
 
 auto TriApp::isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool {
-    bool supportsVk13              = physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
-    auto queueFamilies             = physicalDevice.getQueueFamilyProperties();
-    bool supportsGraphics          = std::ranges::any_of(queueFamilies, [](auto const &qfp) {
+    bool supportsVk13     = physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
+    auto queueFamilies    = physicalDevice.getQueueFamilyProperties();
+    bool supportsGraphics = std::ranges::any_of(queueFamilies, [](auto const &qfp) {
         return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);
     });
-    auto availableDeviceExtensions = physicalDevice.enumerateDeviceExtensionProperties();
+    // check if all required extensions are available
+    auto availableDeviceExtensions     = physicalDevice.enumerateDeviceExtensionProperties();
     bool supportsAllRequiredExtensions = std::ranges::all_of(
         requiredDeviceExtension, [&availableDeviceExtensions](auto const &requiredDeviceExtension) {
             return std::ranges::any_of(
@@ -203,15 +232,27 @@ auto TriApp::isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) ->
                                   requiredDeviceExtension) == 0;
                 });
         });
+    // check if the physical device supports the required features
     auto features = physicalDevice.template getFeatures2<
         vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
         vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
     bool supportsReqFeat =
         features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
         features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
+        features.template get<vk::PhysicalDeviceVulkan13Features>().synchronization2 &&
         features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>()
             .extendedDynamicState;
     return supportsVk13 && supportsReqFeat && supportsGraphics && supportsAllRequiredExtensions;
+}
+
+void TriApp::cleanupSwapChain() {
+    m_swapChainImageViews.clear();
+    m_swapChain = nullptr;
+}
+
+void TriApp::cleanup() {
+    glfwDestroyWindow(m_window);
+    glfwTerminate();
 }
 
 void TriApp::pickPhysicalDevice() {
@@ -237,14 +278,14 @@ void TriApp::createLogicalDevice() {
             break;
         }
     }
-    vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
-                       vk::PhysicalDeviceVulkan13Features,
-                       vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
-        featureChain{
-            vk::PhysicalDeviceFeatures2{},
-            vk::PhysicalDeviceVulkan11Features{}.setShaderDrawParameters(vk::True),
-            vk::PhysicalDeviceVulkan13Features{}.setDynamicRendering(vk::True),
-            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(vk::True)};
+    // Any new feature i want to enable must go here
+    vk::StructureChain featureChain{
+        vk::PhysicalDeviceFeatures2{},
+        vk::PhysicalDeviceVulkan11Features{}.setShaderDrawParameters(vk::True),
+        vk::PhysicalDeviceVulkan13Features{}.setDynamicRendering(vk::True).setSynchronization2(
+            vk::True),
+        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(vk::True)};
+    // create the logical device
     auto const priority = 0.5f;
     auto deviceQueueCI  = vk::DeviceQueueCreateInfo{};
     deviceQueueCI.setQueueFamilyIndex(m_queueIndex).setQueueCount(1).setPQueuePriorities(&priority);
@@ -424,19 +465,26 @@ void TriApp::createCommandPool() {
     m_commandPool = vk::raii::CommandPool(m_device, poolCI);
 }
 
-void TriApp::createCommandBuffer() {
+void TriApp::createCommandBuffers() {
     auto commandBufferAI = vk::CommandBufferAllocateInfo{};
     commandBufferAI.setCommandPool(m_commandPool)
         .setLevel(vk::CommandBufferLevel::ePrimary)
-        .setCommandBufferCount(1);
-    m_commandBuffer = std::move(vk::raii::CommandBuffers(m_device, commandBufferAI).front());
+        .setCommandBufferCount(MAX_FRAMES_IN_FLIGHT);
+    m_commandBuffers = vk::raii::CommandBuffers(m_device, commandBufferAI);
 }
 
 void TriApp::createSyncObjects() {
-    m_presentCompleteSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo{});
-    m_renderFinishedSemaphore  = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo{});
-    m_drawFence                = vk::raii::Fence(
-        m_device, vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
+    assert(m_presentCompleteSemaphores.empty() && m_renderFinishedSemaphores.empty() &&
+           m_inFlightFences.empty());
+
+    for (std::size_t i = 0; i < m_swapChainImages.size(); ++i) {
+        m_renderFinishedSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo{});
+    }
+    for (std::size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        m_presentCompleteSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo{});
+        m_inFlightFences.emplace_back(
+            m_device, vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
+    }
 }
 
 auto TriApp::createShaderModule(const std::vector<char> &code) -> const vk::raii::ShaderModule {
@@ -460,7 +508,8 @@ auto TriApp::readFile(const std::string &fileName) -> std::vector<char> {
 }
 
 void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
-    m_commandBuffer.begin({});
+    auto &commandBuffer = m_commandBuffers[m_frameIndex];
+    commandBuffer.begin({});
 
     transition_image_layout(imageIndex, vk::ImageLayout::eUndefined,
                             vk::ImageLayout::eColorAttachmentOptimal, {},
@@ -479,26 +528,26 @@ void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
         .setLayerCount(1)
         .setColorAttachmentCount(1)
         .setPColorAttachments(&attachmentInfo);
-    m_commandBuffer.beginRendering(renderingInfo);
-    m_commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
-    m_commandBuffer.setViewport(0, vk::Viewport{}
-                                       .setX(0.0f)
-                                       .setY(0.0f)
-                                       .setWidth(static_cast<float>(m_swapChainExtent.width))
-                                       .setHeight(static_cast<float>(m_swapChainExtent.height))
-                                       .setMinDepth(0.0f)
-                                       .setMaxDepth(1.0f));
-    m_commandBuffer.setScissor(0, vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent));
+    commandBuffer.beginRendering(renderingInfo);
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
+    commandBuffer.setViewport(0, vk::Viewport{}
+                                     .setX(0.0f)
+                                     .setY(0.0f)
+                                     .setWidth(static_cast<float>(m_swapChainExtent.width))
+                                     .setHeight(static_cast<float>(m_swapChainExtent.height))
+                                     .setMinDepth(0.0f)
+                                     .setMaxDepth(1.0f));
+    commandBuffer.setScissor(0, vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent));
     // Num of vertices and instances to draw
-    m_commandBuffer.draw(3, 1, 0, 0);
-    m_commandBuffer.endRendering();
+    commandBuffer.draw(3, 1, 0, 0);
+    commandBuffer.endRendering();
 
     transition_image_layout(imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
                             vk::ImageLayout::ePresentSrcKHR,
                             vk::AccessFlagBits2::eColorAttachmentWrite, {},
                             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
                             vk::PipelineStageFlagBits2::eBottomOfPipe);
-    m_commandBuffer.end();
+    commandBuffer.end();
 }
 
 void TriApp::transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout old_layout,
@@ -525,7 +574,14 @@ void TriApp::transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout o
     auto dependencyInfo = vk::DependencyInfo{};
     dependencyInfo.setDependencyFlags({}).setImageMemoryBarrierCount(1).setPImageMemoryBarriers(
         &barrier);
-    m_commandBuffer.pipelineBarrier2(dependencyInfo);
+    m_commandBuffers[m_frameIndex].pipelineBarrier2(dependencyInfo);
+}
+
+void TriApp::recreateSwapChain() {
+    m_device.waitIdle();
+    cleanupSwapChain();
+    createSwapChain();
+    createImageViews();
 }
 
 } // namespace vke

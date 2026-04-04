@@ -7,17 +7,17 @@
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
 
+namespace vke {
+
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
 #else
 constexpr bool enableValidationLayers = true;
 #endif
 
-constexpr auto WIDTH  = 1920;
-constexpr auto HEIGHT = 1920;
-
-namespace vke {
-
+constexpr auto WIDTH                             = 1920;
+constexpr auto HEIGHT                            = 1920;
+constexpr std::uint32_t MAX_FRAMES_IN_FLIGHT     = 2;
 const std::vector<char const *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
 class TriApp {
@@ -25,24 +25,25 @@ class TriApp {
     void run();
 
   private:
+    // Main functions
     void initWindow();
     void initVulkan();
-    void createInstance();
-    void drawFrame();
     void mainLoop();
-    void cleanup();
+    void drawFrame();
+    // Create functions
+    void createInstance();
     void createSurface();
-    void pickPhysicalDevice();
     void createLogicalDevice();
     void createSwapChain();
     void createImageViews();
     void createGraphicsPipeline();
     void createCommandPool();
-    void createCommandBuffer();
+    void createCommandBuffers();
     void createSyncObjects();
-
+    void recreateSwapChain();
     // Helper functions
     auto getRequiredInstanceExtensions() -> std::vector<const char *>;
+    void pickPhysicalDevice();
     auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
     auto chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats)
         -> vk::SurfaceFormatKHR;
@@ -61,7 +62,10 @@ class TriApp {
                                  vk::AccessFlags2 dst_acces_mask,
                                  vk::PipelineStageFlags2 src_stage_mask,
                                  vk::PipelineStageFlags2 dst_stage_mask);
-
+    static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
+    // Cleanup functions
+    void cleanup();
+    void cleanupSwapChain();
     // Debug functions
     void setUpDebugMessenger();
     static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
@@ -86,17 +90,19 @@ class TriApp {
     vk::raii::PipelineLayout m_pipelineLayout         = nullptr;
     vk::raii::Pipeline m_graphicsPipeline             = nullptr;
     vk::raii::CommandPool m_commandPool               = nullptr;
-    vk::raii::CommandBuffer m_commandBuffer           = nullptr;
-    vk::raii::Semaphore m_presentCompleteSemaphore    = nullptr;
-    vk::raii::Semaphore m_renderFinishedSemaphore     = nullptr;
-    vk::raii::Fence m_drawFence                       = nullptr;
+    std::vector<vk::raii::CommandBuffer> m_commandBuffers;
+    std::vector<vk::raii::Semaphore> m_presentCompleteSemaphores;
+    std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores;
+    std::vector<vk::raii::Fence> m_inFlightFences;
     GLFWwindow *m_window{};
     std::uint32_t m_queueIndex{};
+    std::uint32_t m_frameIndex{};
     vk::raii::Context m_context{};
     vk::PhysicalDeviceFeatures m_deviceFeatures{};
     vk::Extent2D m_swapChainExtent{};
     vk::SurfaceFormatKHR m_swapChainSurfaceFormat{};
     std::vector<vk::Image> m_swapChainImages{};
     std::vector<vk::raii::ImageView> m_swapChainImageViews{};
+    bool m_frameBufferResized = false;
 };
 } // namespace vke
