@@ -86,8 +86,8 @@ void TriApp::drawFrame() {
     auto [result, imageIndex] =
         m_swapChain.acquireNextImage(maxUINT64, *m_presentCompleteSemaphores[m_frameIndex],
                                      nullptr); // Also max uint to diable timeout
-    if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR ||
-        m_frameBufferResized) {
+    if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
+        std::println("Swapchain is in a suboptimal  or out of date state");
         recreateSwapChain();
         return;
     } else if (result != vk::Result::eSuccess) {
@@ -108,11 +108,11 @@ void TriApp::drawFrame() {
                                 .setCommandBufferCount(1)
                                 .setPCommandBuffers(&*m_commandBuffers[m_frameIndex])
                                 .setSignalSemaphoreCount(1)
-                                .setPSignalSemaphores(&*m_renderFinishedSemaphores[m_frameIndex]);
+                                .setPSignalSemaphores(&*m_renderFinishedSemaphores[imageIndex]);
     m_queue.submit(submitInfo, *m_inFlightFences[m_frameIndex]);
     auto const presentInfoKHR = vk::PresentInfoKHR{}
                                     .setWaitSemaphoreCount(1)
-                                    .setPWaitSemaphores(&*m_renderFinishedSemaphores[m_frameIndex])
+                                    .setPWaitSemaphores(&*m_renderFinishedSemaphores[imageIndex])
                                     .setSwapchainCount(1)
                                     .setPSwapchains(&*m_swapChain)
                                     .setPImageIndices(&imageIndex);
@@ -122,6 +122,7 @@ void TriApp::drawFrame() {
         break;
     case vk::Result::eSuboptimalKHR:
     case vk::Result::eErrorOutOfDateKHR:
+        m_frameBufferResized = false;
         recreateSwapChain();
         break;
     default:
@@ -209,6 +210,7 @@ auto TriApp::getRequiredInstanceExtensions() -> std::vector<const char *> {
     auto glfwExtensionCount = std::uint32_t{0};
     auto glfwExtensions     = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
     std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+    extensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
     if (enableValidationLayers) {
         extensions.push_back(vk::EXTDebugUtilsExtensionName);
     }
