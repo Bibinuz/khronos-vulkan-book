@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <glm/glm.hpp>
 #include <limits>
 #include <print>
 #include <stdexcept>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include "GLFW/glfw3.h"
+#include "vertex.hpp"
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_core.h"
 #include "vulkan/vulkan_enums.hpp"
@@ -51,33 +53,38 @@ void TriApp::framebufferResizeCallback(GLFWwindow *window, [[maybe_unused]] int 
     app->m_frameBufferResized = true;
 }
 
+// clang-format off
 void TriApp::initVulkan() {
     createInstance();
-    std::println("Instance Created");
+        std::println("Instance Created");
     setUpDebugMessenger();
+        std::println("Setted up debug messages");
     createSurface();
-    std::println("Surface Created");
+        std::println("Surface Created");
     pickPhysicalDevice();
-    std::println("Picked physical device");
+        std::println("Picked physical device");
     createLogicalDevice();
-    std::println("Logical device Created");
+        std::println("Logical device Created");
     createSwapChain();
-    std::println("Swapchain Created");
+        std::println("Swapchain Created");
     createImageViews();
-    std::println("Image views created");
+        std::println("Image views created");
     createGraphicsPipeline();
-    std::println("Graphics pipeline layout created");
+        std::println("Graphics pipeline layout created");
     createCommandPool();
-    std::println("Command pool created");
+        std::println("Command pool created");
+    createVertexBuffer();
+        std::println("Vertex buffer created");
     createCommandBuffers();
-    std::println("Command buffer created");
+        std::println("Command buffer created");
     createSyncObjects();
-    std::println("Sync objects created");
+        std::println("Sync objects created");
 }
+// clang-format on
 
 void TriApp::drawFrame() {
     constexpr auto maxUINT64 = std::numeric_limits<std::uint64_t>::max();
-    auto fenceResult =
+    const auto fenceResult =
         m_device.waitForFences(*m_inFlightFences[m_frameIndex], vk::True,
                                maxUINT64); // Max uint to effectively disables the timeout
     if (fenceResult != vk::Result::eSuccess) {
@@ -94,14 +101,13 @@ void TriApp::drawFrame() {
         assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
-
     m_device.resetFences(*m_inFlightFences[m_frameIndex]);
     m_commandBuffers[m_frameIndex].reset();
     recordCommandBuffer(imageIndex);
     m_queue.waitIdle();
-    auto waitDestinationStageMask =
+    const auto waitDestinationStageMask =
         vk::PipelineStageFlags{vk::PipelineStageFlagBits::eColorAttachmentOutput};
-    auto const submitInfo = vk::SubmitInfo{}
+    const auto submitInfo = vk::SubmitInfo{}
                                 .setWaitSemaphoreCount(1)
                                 .setPWaitSemaphores(&*m_presentCompleteSemaphores[m_frameIndex])
                                 .setPWaitDstStageMask(&waitDestinationStageMask)
@@ -110,7 +116,7 @@ void TriApp::drawFrame() {
                                 .setSignalSemaphoreCount(1)
                                 .setPSignalSemaphores(&*m_renderFinishedSemaphores[imageIndex]);
     m_queue.submit(submitInfo, *m_inFlightFences[m_frameIndex]);
-    auto const presentInfoKHR = vk::PresentInfoKHR{}
+    const auto presentInfoKHR = vk::PresentInfoKHR{}
                                     .setWaitSemaphoreCount(1)
                                     .setPWaitSemaphores(&*m_renderFinishedSemaphores[imageIndex])
                                     .setSwapchainCount(1)
@@ -134,12 +140,12 @@ void TriApp::drawFrame() {
 }
 
 void TriApp::createInstance() {
-    auto appInfo = vk::ApplicationInfo{};
-    appInfo.setPApplicationName("Hello triangle")
-        .setApplicationVersion(VK_MAKE_VERSION(1, 0, 0))
-        .setPEngineName("No Engine")
-        .setEngineVersion(VK_MAKE_VERSION(1, 0, 0))
-        .setApiVersion(VK_MAKE_VERSION(1, 4, 0));
+    auto appInfo = vk::ApplicationInfo{}
+                       .setPApplicationName("Hello triangle")
+                       .setApplicationVersion(VK_MAKE_VERSION(1, 0, 0))
+                       .setPEngineName("No Engine")
+                       .setEngineVersion(VK_MAKE_VERSION(1, 0, 0))
+                       .setApiVersion(VK_MAKE_VERSION(1, 4, 0));
     // Get required validation layers
     auto requiredLayers = std::vector<char const *>{};
     if (enableValidationLayers) {
@@ -179,13 +185,14 @@ void TriApp::createInstance() {
                                  std::string(*unsupportedPropertyIt));
     }
     // Create instance
-    auto createInfo = vk::InstanceCreateInfo{};
-    createInfo.setPApplicationInfo(&appInfo)
-        .setFlags(vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR)
-        .setEnabledLayerCount(static_cast<std::uint32_t>(requiredLayers.size()))
-        .setPEnabledLayerNames(requiredLayers)
-        .setEnabledExtensionCount(static_cast<std::uint32_t>(requiredExtensions.size()))
-        .setPEnabledExtensionNames(requiredExtensions);
+    auto createInfo =
+        vk::InstanceCreateInfo{}
+            .setPApplicationInfo(&appInfo)
+            .setFlags(vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR)
+            .setEnabledLayerCount(static_cast<std::uint32_t>(requiredLayers.size()))
+            .setPEnabledLayerNames(requiredLayers)
+            .setEnabledExtensionCount(static_cast<std::uint32_t>(requiredExtensions.size()))
+            .setPEnabledExtensionNames(requiredExtensions);
     m_instance = vk::raii::Instance(m_context, createInfo);
 }
 
@@ -199,10 +206,10 @@ void TriApp::setUpDebugMessenger() {
         vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
         vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
         vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
-    auto debugUtilsMessengerCreateInfoEXT = vk::DebugUtilsMessengerCreateInfoEXT{};
-    debugUtilsMessengerCreateInfoEXT.setMessageSeverity(severityFlags)
-        .setMessageType(messageTypeFlags)
-        .setPfnUserCallback(&debugCallback);
+    auto debugUtilsMessengerCreateInfoEXT = vk::DebugUtilsMessengerCreateInfoEXT{}
+                                                .setMessageSeverity(severityFlags)
+                                                .setMessageType(messageTypeFlags)
+                                                .setPfnUserCallback(&debugCallback);
     m_debugMessenger = m_instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
 }
 
@@ -262,7 +269,7 @@ void TriApp::pickPhysicalDevice() {
     if (physicalDevices.empty()) {
         throw std::runtime_error("failed to find GPUs with vulkan support!");
     }
-    auto const devIter = std::ranges::find_if(physicalDevices, [&](auto const &physicalDevice) {
+    const auto devIter = std::ranges::find_if(physicalDevices, [&](auto const &physicalDevice) {
         return isDeviceSuitable(physicalDevice);
     });
     if (devIter == physicalDevices.end()) {
@@ -272,7 +279,7 @@ void TriApp::pickPhysicalDevice() {
 }
 
 void TriApp::createLogicalDevice() {
-    auto queueFP = m_physicalDevice.getQueueFamilyProperties();
+    const auto queueFP = m_physicalDevice.getQueueFamilyProperties();
     for (std::uint32_t qfpIndex = 0; qfpIndex < queueFP.size(); ++qfpIndex) {
         if ((queueFP[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
             m_physicalDevice.getSurfaceSupportKHR(qfpIndex, *m_surface)) {
@@ -281,22 +288,28 @@ void TriApp::createLogicalDevice() {
         }
     }
     // Any new feature i want to enable must go here
-    vk::StructureChain featureChain{
-        vk::PhysicalDeviceFeatures2{},
-        vk::PhysicalDeviceVulkan11Features{}.setShaderDrawParameters(vk::True),
-        vk::PhysicalDeviceVulkan13Features{}.setDynamicRendering(vk::True).setSynchronization2(
-            vk::True),
-        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(vk::True)};
+    const auto featureChain =
+        vk::StructureChain{vk::PhysicalDeviceFeatures2{},
+                           vk::PhysicalDeviceVulkan11Features{} //
+                               .setShaderDrawParameters(vk::True),
+                           vk::PhysicalDeviceVulkan13Features{} //
+                               .setDynamicRendering(vk::True)   //
+                               .setSynchronization2(vk::True),
+                           vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{} //
+                               .setExtendedDynamicState(vk::True)};
     // create the logical device
-    auto const priority = 0.5f;
-    auto deviceQueueCI  = vk::DeviceQueueCreateInfo{};
-    deviceQueueCI.setQueueFamilyIndex(m_queueIndex).setQueueCount(1).setPQueuePriorities(&priority);
-    auto deviceCI = vk::DeviceCreateInfo{};
-    deviceCI.setPNext(&featureChain.get<vk::PhysicalDeviceFeatures2>())
-        .setQueueCreateInfoCount(1)
-        .setPQueueCreateInfos(&deviceQueueCI)
-        .setEnabledExtensionCount(static_cast<std::uint32_t>(requiredDeviceExtension.size()))
-        .setPpEnabledExtensionNames(requiredDeviceExtension.data());
+    const auto priority      = 0.5f;
+    const auto deviceQueueCI = vk::DeviceQueueCreateInfo{}
+                                   .setQueueFamilyIndex(m_queueIndex)
+                                   .setQueueCount(1)
+                                   .setPQueuePriorities(&priority);
+    const auto deviceCI =
+        vk::DeviceCreateInfo{}
+            .setPNext(&featureChain.get<vk::PhysicalDeviceFeatures2>())
+            .setQueueCreateInfoCount(1)
+            .setPQueueCreateInfos(&deviceQueueCI)
+            .setEnabledExtensionCount(static_cast<std::uint32_t>(requiredDeviceExtension.size()))
+            .setPpEnabledExtensionNames(requiredDeviceExtension.data());
     m_device = vk::raii::Device(m_physicalDevice, deviceCI);
     m_queue  = vk::raii::Queue(m_device, m_queueIndex, 0);
 }
@@ -328,8 +341,7 @@ auto TriApp::chooseSwapPresentMode(const std::vector<vk::PresentModeKHR> &availa
                ? vk::PresentModeKHR::eMailbox
                : vk::PresentModeKHR::eFifo;
 }
-auto TriApp::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) //
-    -> vk::Extent2D {
+auto TriApp::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) -> vk::Extent2D {
     if (capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max()) {
         return capabilities.currentExtent;
     }
@@ -353,42 +365,42 @@ auto TriApp::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilit
 }
 
 void TriApp::createSwapChain() {
-    auto surfCap             = m_physicalDevice.getSurfaceCapabilitiesKHR(*m_surface);
-    m_swapChainExtent        = chooseSwapExtent(surfCap);
-    auto minImageCount       = chooseSwapMinImageCount(surfCap);
-    auto availableFormats    = m_physicalDevice.getSurfaceFormatsKHR(*m_surface);
-    m_swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
-    auto presentModes        = m_physicalDevice.getSurfacePresentModesKHR(*m_surface);
-    // std::uint32_t imageCount = surfCap.minImageCount + 1;
-    auto swapChainCI = vk::SwapchainCreateInfoKHR{};
-    swapChainCI.setSurface(*m_surface)
-        .setMinImageCount(minImageCount)
-        .setImageFormat(m_swapChainSurfaceFormat.format)
-        .setImageColorSpace(m_swapChainSurfaceFormat.colorSpace)
-        .setImageExtent(m_swapChainExtent)
-        .setImageArrayLayers(1)
-        .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
-        .setPreTransform(surfCap.currentTransform)
-        .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
-        .setPresentMode(chooseSwapPresentMode(presentModes))
-        .setClipped(vk::True)
-        .setOldSwapchain(nullptr);
-    m_swapChain       = vk::raii::SwapchainKHR(m_device, swapChainCI);
-    m_swapChainImages = m_swapChain.getImages();
+    const auto surfCap          = m_physicalDevice.getSurfaceCapabilitiesKHR(*m_surface);
+    m_swapChainExtent           = chooseSwapExtent(surfCap);
+    const auto minImageCount    = chooseSwapMinImageCount(surfCap);
+    const auto availableFormats = m_physicalDevice.getSurfaceFormatsKHR(*m_surface);
+    m_swapChainSurfaceFormat    = chooseSwapSurfaceFormat(availableFormats);
+    const auto presentModes     = m_physicalDevice.getSurfacePresentModesKHR(*m_surface);
+    const auto swapChainCI      = vk::SwapchainCreateInfoKHR{}
+                                      .setSurface(*m_surface)
+                                      .setMinImageCount(minImageCount)
+                                      .setImageFormat(m_swapChainSurfaceFormat.format)
+                                      .setImageColorSpace(m_swapChainSurfaceFormat.colorSpace)
+                                      .setImageExtent(m_swapChainExtent)
+                                      .setImageArrayLayers(1)
+                                      .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
+                                      .setPreTransform(surfCap.currentTransform)
+                                      .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
+                                      .setPresentMode(chooseSwapPresentMode(presentModes))
+                                      .setClipped(vk::True)
+                                      .setOldSwapchain(nullptr);
+    m_swapChain                 = vk::raii::SwapchainKHR(m_device, swapChainCI);
+    m_swapChainImages           = m_swapChain.getImages();
 }
 
 void TriApp::createImageViews() {
     assert(m_swapChainImageViews.empty());
-    auto eI         = vk::ComponentSwizzle::eIdentity;
-    auto components = vk::ComponentMapping{};
-    components.setR(eI).setG(eI).setB(eI).setA(eI);
-    auto subResRange = vk::ImageSubresourceRange{};
-    subResRange.setAspectMask(vk::ImageAspectFlagBits::eColor).setLevelCount(1).setLayerCount(1);
-    auto imageViewCI = vk::ImageViewCreateInfo{};
-    imageViewCI.setViewType(vk::ImageViewType::e2D)
-        .setFormat(m_swapChainSurfaceFormat.format)
-        .setSubresourceRange(subResRange)
-        .setComponents(components);
+    const auto eI          = vk::ComponentSwizzle::eIdentity;
+    const auto components  = vk::ComponentMapping{}.setR(eI).setG(eI).setB(eI).setA(eI);
+    const auto subResRange = vk::ImageSubresourceRange{}
+                                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                 .setLevelCount(1)
+                                 .setLayerCount(1);
+    auto imageViewCI       = vk::ImageViewCreateInfo{}
+                                 .setViewType(vk::ImageViewType::e2D)
+                                 .setFormat(m_swapChainSurfaceFormat.format)
+                                 .setSubresourceRange(subResRange)
+                                 .setComponents(components);
     for (auto &image : m_swapChainImages) {
         imageViewCI.image = image;
         m_swapChainImageViews.emplace_back(m_device, imageViewCI);
@@ -396,83 +408,122 @@ void TriApp::createImageViews() {
 }
 
 void TriApp::createGraphicsPipeline() {
-    auto shaderCode          = readFile("./shaders/slang.spv");
-    auto shaderModule        = createShaderModule(shaderCode);
-    auto vertShaderStageInfo = vk::PipelineShaderStageCreateInfo{};
-    vertShaderStageInfo.setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(shaderModule)
-        .setPName("vertMain");
-    auto fragShaderStageInfo = vk::PipelineShaderStageCreateInfo{};
-    fragShaderStageInfo.setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(shaderModule)
-        .setPName("fragMain");
-    auto shaderStages =
+    const auto shaderCode          = readFile("./shaders/slang.spv");
+    const auto shaderModule        = createShaderModule(shaderCode);
+    const auto vertShaderStageInfo = vk::PipelineShaderStageCreateInfo{}
+                                         .setStage(vk::ShaderStageFlagBits::eVertex)
+                                         .setModule(shaderModule)
+                                         .setPName("vertMain");
+    const auto fragShaderStageInfo = vk::PipelineShaderStageCreateInfo{}
+                                         .setStage(vk::ShaderStageFlagBits::eFragment)
+                                         .setModule(shaderModule)
+                                         .setPName("fragMain");
+    const auto shaderStages =
         std::vector<vk::PipelineShaderStageCreateInfo>{vertShaderStageInfo, fragShaderStageInfo};
-    auto vertexInputCI = vk::PipelineVertexInputStateCreateInfo{};
-    auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo{};
-    inputAssembly.setTopology(vk::PrimitiveTopology::eTriangleList);
-    auto viewPortStateCI = vk::PipelineViewportStateCreateInfo{};
-    viewPortStateCI.setViewportCount(1).setScissorCount(1);
-    auto rasterizerCI = vk::PipelineRasterizationStateCreateInfo{};
-    rasterizerCI.setDepthClampEnable(vk::False)
-        .setRasterizerDiscardEnable(vk::False)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eBack)
-        .setFrontFace(vk::FrontFace::eClockwise)
-        .setDepthBiasEnable(vk::False)
-        .setLineWidth(1.0f);
-    auto multisampling = vk::PipelineMultisampleStateCreateInfo{};
-    multisampling.setRasterizationSamples(vk::SampleCountFlagBits::e1)
-        .setSampleShadingEnable(vk::False);
-    auto colorBlendAttachment = vk::PipelineColorBlendAttachmentState{};
-    colorBlendAttachment.setBlendEnable(vk::False).setColorWriteMask(
-        vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-        vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
-    auto colorBlendingCI = vk::PipelineColorBlendStateCreateInfo{};
-    colorBlendingCI.setLogicOpEnable(vk::False)
-        .setLogicOp(vk::LogicOp::eCopy)
-        .setAttachmentCount(1)
-        .setPAttachments(&colorBlendAttachment);
-    auto dynamicStates =
+    const auto bindingDescription    = Vertex::getBindingDescription();
+    const auto attributeDescriptions = Vertex::getAttributeDescriptions();
+    const auto vertexInputCI = vk::PipelineVertexInputStateCreateInfo{}
+                                   .setVertexBindingDescriptionCount(1)
+                                   .setPVertexBindingDescriptions(&bindingDescription)
+                                   .setVertexAttributeDescriptionCount(attributeDescriptions.size())
+                                   .setPVertexAttributeDescriptions(attributeDescriptions.data());
+    const auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo{}.setTopology(
+        vk::PrimitiveTopology::eTriangleList);
+    const auto viewPortStateCI =
+        vk::PipelineViewportStateCreateInfo{}.setViewportCount(1).setScissorCount(1);
+    const auto rasterizerCI  = vk::PipelineRasterizationStateCreateInfo{}
+                                   .setDepthClampEnable(vk::False)
+                                   .setRasterizerDiscardEnable(vk::False)
+                                   .setPolygonMode(vk::PolygonMode::eFill)
+                                   .setCullMode(vk::CullModeFlagBits::eBack)
+                                   .setFrontFace(vk::FrontFace::eClockwise)
+                                   .setDepthBiasEnable(vk::False)
+                                   .setLineWidth(1.0f);
+    const auto multisampling = vk::PipelineMultisampleStateCreateInfo{}
+                                   .setRasterizationSamples(vk::SampleCountFlagBits::e1)
+                                   .setSampleShadingEnable(vk::False);
+    const auto colorBlendAttachment =
+        vk::PipelineColorBlendAttachmentState{}.setBlendEnable(vk::False).setColorWriteMask(
+            vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+            vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
+    const auto colorBlendingCI = vk::PipelineColorBlendStateCreateInfo{}
+                                     .setLogicOpEnable(vk::False)
+                                     .setLogicOp(vk::LogicOp::eCopy)
+                                     .setAttachmentCount(1)
+                                     .setPAttachments(&colorBlendAttachment);
+    const auto dynamicStates =
         std::vector<vk::DynamicState>{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
-    auto dynamicStateCI = vk::PipelineDynamicStateCreateInfo{};
-    dynamicStateCI.setDynamicStateCount(static_cast<std::uint32_t>(dynamicStates.size()))
-        .setPDynamicStates(dynamicStates.data());
-    auto pipelineLayoutCI = vk::PipelineLayoutCreateInfo{};
-    pipelineLayoutCI.setSetLayoutCount(0).setPushConstantRangeCount(0);
-    m_pipelineLayout         = vk::raii::PipelineLayout(m_device, pipelineLayoutCI);
-    auto pipelineRenderingCI = vk::PipelineRenderingCreateInfo{};
-    pipelineRenderingCI.setColorAttachmentCount(1).setPColorAttachmentFormats(
-        &m_swapChainSurfaceFormat.format);
-    auto pipelineCI = vk::GraphicsPipelineCreateInfo{};
-    pipelineCI.setPNext(&pipelineRenderingCI)
-        .setStageCount(2)
-        .setPStages(shaderStages.data())
-        .setPVertexInputState(&vertexInputCI)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewPortStateCI)
-        .setPRasterizationState(&rasterizerCI)
-        .setPMultisampleState(&multisampling)
-        .setPColorBlendState(&colorBlendingCI)
-        .setPDynamicState(&dynamicStateCI)
-        .setLayout(m_pipelineLayout)
-        .setRenderPass(nullptr);
-    m_graphicsPipeline = vk::raii::Pipeline(m_device, nullptr, pipelineCI);
+    const auto dynamicStateCI =
+        vk::PipelineDynamicStateCreateInfo{}
+            .setDynamicStateCount(static_cast<std::uint32_t>(dynamicStates.size()))
+            .setPDynamicStates(dynamicStates.data());
+    const auto pipelineLayoutCI =
+        vk::PipelineLayoutCreateInfo{}.setSetLayoutCount(0).setPushConstantRangeCount(0);
+    m_pipelineLayout = vk::raii::PipelineLayout(m_device, pipelineLayoutCI);
+    const auto pipelineRenderingCI =
+        vk::PipelineRenderingCreateInfo{}.setColorAttachmentCount(1).setPColorAttachmentFormats(
+            &m_swapChainSurfaceFormat.format);
+    const auto pipelineCI = vk::GraphicsPipelineCreateInfo{}
+                                .setPNext(&pipelineRenderingCI)
+                                .setStageCount(2)
+                                .setPStages(shaderStages.data())
+                                .setPVertexInputState(&vertexInputCI)
+                                .setPInputAssemblyState(&inputAssembly)
+                                .setPViewportState(&viewPortStateCI)
+                                .setPRasterizationState(&rasterizerCI)
+                                .setPMultisampleState(&multisampling)
+                                .setPColorBlendState(&colorBlendingCI)
+                                .setPDynamicState(&dynamicStateCI)
+                                .setLayout(m_pipelineLayout)
+                                .setRenderPass(nullptr);
+    m_graphicsPipeline    = vk::raii::Pipeline(m_device, nullptr, pipelineCI);
+}
+
+void TriApp::createVertexBuffer() {
+    const auto bufferInfo = vk::BufferCreateInfo{}
+                                .setSize(sizeof(vertices[0]) * vertices.size())
+                                .setUsage(vk::BufferUsageFlagBits::eVertexBuffer)
+                                .setSharingMode(vk::SharingMode::eExclusive);
+    m_vertexBuffer        = vk::raii::Buffer(m_device, bufferInfo);
+    auto memRequirements  = m_vertexBuffer.getMemoryRequirements();
+    auto properties =
+        vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
+    auto memoryAI =
+        vk::MemoryAllocateInfo{}
+            .setAllocationSize(memRequirements.size)
+            .setMemoryTypeIndex(findMemoryType(memRequirements.memoryTypeBits, properties));
+    m_vertexBufferMemory = vk::raii::DeviceMemory(m_device, memoryAI);
+    m_vertexBuffer.bindMemory(*m_vertexBufferMemory, 0);
+    void *data = m_vertexBufferMemory.mapMemory(0, bufferInfo.size);
+    std::memcpy(data, vertices.data(), bufferInfo.size);
+    m_vertexBufferMemory.unmapMemory();
+}
+
+auto TriApp::findMemoryType(std::uint32_t typeFilter, vk::MemoryPropertyFlags properties)
+    -> std::uint32_t {
+    auto memProperties = m_physicalDevice.getMemoryProperties();
+    for (std::uint32_t i = 0; i < memProperties.memoryTypeCount; ++i) {
+        if ((typeFilter & (1 << i)) &&
+            (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+    throw std::runtime_error("failed to find suitable memory type");
 }
 
 void TriApp::createCommandPool() {
-    auto poolCI = vk::CommandPoolCreateInfo{};
-    poolCI.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
-        .setQueueFamilyIndex(m_queueIndex);
-    m_commandPool = vk::raii::CommandPool(m_device, poolCI);
+    const auto poolCI = vk::CommandPoolCreateInfo{}
+                            .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
+                            .setQueueFamilyIndex(m_queueIndex);
+    m_commandPool     = vk::raii::CommandPool(m_device, poolCI);
 }
 
 void TriApp::createCommandBuffers() {
-    auto commandBufferAI = vk::CommandBufferAllocateInfo{};
-    commandBufferAI.setCommandPool(m_commandPool)
-        .setLevel(vk::CommandBufferLevel::ePrimary)
-        .setCommandBufferCount(MAX_FRAMES_IN_FLIGHT);
-    m_commandBuffers = vk::raii::CommandBuffers(m_device, commandBufferAI);
+    const auto commandBufferAI = vk::CommandBufferAllocateInfo{}
+                                     .setCommandPool(m_commandPool)
+                                     .setLevel(vk::CommandBufferLevel::ePrimary)
+                                     .setCommandBufferCount(MAX_FRAMES_IN_FLIGHT);
+    m_commandBuffers           = vk::raii::CommandBuffers(m_device, commandBufferAI);
 }
 
 void TriApp::createSyncObjects() {
@@ -490,9 +541,9 @@ void TriApp::createSyncObjects() {
 }
 
 auto TriApp::createShaderModule(const std::vector<char> &code) -> const vk::raii::ShaderModule {
-    auto shaderModuleCI = vk::ShaderModuleCreateInfo{};
-    shaderModuleCI.setCodeSize(code.size() * sizeof(char))
-        .setPCode(reinterpret_cast<const std::uint32_t *>(code.data()));
+    const auto shaderModuleCI = vk::ShaderModuleCreateInfo{}
+                                    .setCodeSize(code.size() * sizeof(char))
+                                    .setPCode(reinterpret_cast<const std::uint32_t *>(code.data()));
     vk::raii::ShaderModule shaderModule{m_device, shaderModuleCI};
     return shaderModule;
 }
@@ -518,20 +569,23 @@ void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
                             vk::AccessFlagBits2::eColorAttachmentWrite,
                             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
                             vk::PipelineStageFlagBits2::eColorAttachmentOutput);
-    auto clearColor     = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
-    auto attachmentInfo = vk::RenderingAttachmentInfo{};
-    attachmentInfo.setImageView(m_swapChainImageViews[imageIndex])
-        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eStore)
-        .setClearValue(clearColor);
-    auto renderingInfo = vk::RenderingInfo{};
-    renderingInfo.setRenderArea(vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent))
-        .setLayerCount(1)
-        .setColorAttachmentCount(1)
-        .setPColorAttachments(&attachmentInfo);
+    constexpr auto clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    const auto attachmentInfo = vk::RenderingAttachmentInfo{}
+                                    .setImageView(m_swapChainImageViews[imageIndex])
+                                    .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+                                    .setLoadOp(vk::AttachmentLoadOp::eClear)
+                                    .setStoreOp(vk::AttachmentStoreOp::eStore)
+                                    .setClearValue(clearColor);
+    const auto renderingInfo =
+        vk::RenderingInfo{}
+            .setRenderArea(vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent))
+            .setLayerCount(1)
+            .setColorAttachmentCount(1)
+            .setPColorAttachments(&attachmentInfo);
     commandBuffer.beginRendering(renderingInfo);
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
+    commandBuffer.bindVertexBuffers(0, *m_vertexBuffer, {0});
+
     commandBuffer.setViewport(0, vk::Viewport{}
                                      .setX(0.0f)
                                      .setY(0.0f)
@@ -540,8 +594,9 @@ void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
                                      .setMinDepth(0.0f)
                                      .setMaxDepth(1.0f));
     commandBuffer.setScissor(0, vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent));
+
     // Num of vertices and instances to draw
-    commandBuffer.draw(3, 1, 0, 0);
+    commandBuffer.draw(static_cast<std::uint32_t>(vertices.size()), 1, 0, 0);
     commandBuffer.endRendering();
 
     transition_image_layout(imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
@@ -557,25 +612,27 @@ void TriApp::transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout o
                                      vk::AccessFlags2 dst_acces_mask,
                                      vk::PipelineStageFlags2 src_stage_mask,
                                      vk::PipelineStageFlags2 dst_stage_mask) {
-    auto barrier = vk::ImageMemoryBarrier2{};
-    barrier.setSrcStageMask(src_stage_mask)
-        .setSrcAccessMask(src_access_mask)
-        .setDstStageMask(dst_stage_mask)
-        .setDstAccessMask(dst_acces_mask)
-        .setOldLayout(old_layout)
-        .setNewLayout(new_layout)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(m_swapChainImages[imageIndex])
-        .setSubresourceRange(vk::ImageSubresourceRange{}
-                                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                                 .setBaseMipLevel(0)
-                                 .setLevelCount(1)
-                                 .setBaseArrayLayer(0)
-                                 .setLayerCount(1));
-    auto dependencyInfo = vk::DependencyInfo{};
-    dependencyInfo.setDependencyFlags({}).setImageMemoryBarrierCount(1).setPImageMemoryBarriers(
-        &barrier);
+    const auto subResRange    = vk::ImageSubresourceRange{}
+                                    .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                    .setBaseMipLevel(0)
+                                    .setLevelCount(1)
+                                    .setBaseArrayLayer(0)
+                                    .setLayerCount(1);
+    const auto barrier        = vk::ImageMemoryBarrier2{}
+                                    .setSrcStageMask(src_stage_mask)
+                                    .setSrcAccessMask(src_access_mask)
+                                    .setDstStageMask(dst_stage_mask)
+                                    .setDstAccessMask(dst_acces_mask)
+                                    .setOldLayout(old_layout)
+                                    .setNewLayout(new_layout)
+                                    .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                                    .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                                    .setImage(m_swapChainImages[imageIndex])
+                                    .setSubresourceRange(subResRange);
+    const auto dependencyInfo = vk::DependencyInfo{}
+                                    .setDependencyFlags({})
+                                    .setImageMemoryBarrierCount(1)
+                                    .setPImageMemoryBarriers(&barrier);
     m_commandBuffers[m_frameIndex].pipelineBarrier2(dependencyInfo);
 }
 

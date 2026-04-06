@@ -1,3 +1,5 @@
+#pragma once
+
 #include "vulkan/vk_platform.h"
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_enums.hpp"
@@ -41,6 +43,8 @@ class TriApp {
     void createCommandBuffers();
     void createSyncObjects();
     void recreateSwapChain();
+    void createVertexBuffer();
+
     // Helper functions
     auto getRequiredInstanceExtensions() -> std::vector<const char *>;
     void pickPhysicalDevice();
@@ -63,9 +67,13 @@ class TriApp {
                                  vk::PipelineStageFlags2 src_stage_mask,
                                  vk::PipelineStageFlags2 dst_stage_mask);
     static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
+    auto findMemoryType(std::uint32_t typeFilter, vk::MemoryPropertyFlags properties)
+        -> std::uint32_t;
+
     // Cleanup functions
     void cleanup();
     void cleanupSwapChain();
+
     // Debug functions
     void setUpDebugMessenger();
     static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
@@ -89,11 +97,15 @@ class TriApp {
     vk::raii::SwapchainKHR m_swapChain                = nullptr;
     vk::raii::PipelineLayout m_pipelineLayout         = nullptr;
     vk::raii::Pipeline m_graphicsPipeline             = nullptr;
+    vk::raii::Buffer m_vertexBuffer                   = nullptr;
+    vk::raii::DeviceMemory m_vertexBufferMemory       = nullptr;
     vk::raii::CommandPool m_commandPool               = nullptr;
-    std::vector<vk::raii::CommandBuffer> m_commandBuffers;
-    std::vector<vk::raii::Semaphore> m_presentCompleteSemaphores;
-    std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores;
-    std::vector<vk::raii::Fence> m_inFlightFences;
+    std::vector<vk::raii::CommandBuffer> m_commandBuffers{};
+    std::vector<vk::raii::Semaphore> m_presentCompleteSemaphores{};
+    std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores{};
+    std::vector<vk::raii::Fence> m_inFlightFences{};
+    std::vector<vk::Image> m_swapChainImages{};
+    std::vector<vk::raii::ImageView> m_swapChainImageViews{};
     GLFWwindow *m_window{};
     std::uint32_t m_queueIndex{};
     std::uint32_t m_frameIndex{};
@@ -101,8 +113,6 @@ class TriApp {
     vk::PhysicalDeviceFeatures m_deviceFeatures{};
     vk::Extent2D m_swapChainExtent{};
     vk::SurfaceFormatKHR m_swapChainSurfaceFormat{};
-    std::vector<vk::Image> m_swapChainImages{};
-    std::vector<vk::raii::ImageView> m_swapChainImageViews{};
     bool m_frameBufferResized = false;
 };
 } // namespace vke
