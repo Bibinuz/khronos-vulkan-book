@@ -44,21 +44,23 @@ class TriApp {
     void createSyncObjects();
     void recreateSwapChain();
     void createVertexBuffer();
+    void createIndexBuffer();
 
     // Helper functions
-    auto getRequiredInstanceExtensions() -> std::vector<const char *>;
     void pickPhysicalDevice();
-    auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
-    auto chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats)
+    [[nodiscard]] auto getRequiredInstanceExtensions() -> std::vector<const char *>;
+    [[nodiscard]] auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
+    [[nodiscard]] auto
+    chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats)
         -> vk::SurfaceFormatKHR;
-    auto chooseSwapPresentMode(const std::vector<vk::PresentModeKHR> &availableModes)
+    [[nodiscard]] auto chooseSwapPresentMode(const std::vector<vk::PresentModeKHR> &availableModes)
         -> vk::PresentModeKHR;
-    auto chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) //
+    [[nodiscard]] auto chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) //
         -> vk::Extent2D;
-    auto chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilities) //
+    [[nodiscard]] auto chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilities) //
         -> std::uint32_t;
-    static auto readFile(const std::string &filename) -> std::vector<char>;
-    [[nodiscard]] auto createShaderModule(const std::vector<char> &conde)
+    [[nodiscard]] static auto readFile(const std::string &filename) -> std::vector<char>;
+    [[nodiscard]] auto createShaderModule(std::span<const char> conde)
         -> const vk::raii::ShaderModule;
     void recordCommandBuffer(std::uint32_t imageIndex);
     void transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout old_layout,
@@ -67,9 +69,12 @@ class TriApp {
                                  vk::PipelineStageFlags2 src_stage_mask,
                                  vk::PipelineStageFlags2 dst_stage_mask);
     static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
-    auto findMemoryType(std::uint32_t typeFilter, vk::MemoryPropertyFlags properties)
+    [[nodiscard]] auto findMemoryType(std::uint32_t typeFilter, vk::MemoryPropertyFlags properties)
         -> std::uint32_t;
-
+    void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
+                      vk::MemoryPropertyFlags properties, vk::raii::Buffer &buffer,
+                      vk::raii::DeviceMemory &bufferMemory);
+    void copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer, vk::DeviceSize size);
     // Cleanup functions
     void cleanup();
     void cleanupSwapChain();
@@ -99,6 +104,8 @@ class TriApp {
     vk::raii::Pipeline m_graphicsPipeline             = nullptr;
     vk::raii::Buffer m_vertexBuffer                   = nullptr;
     vk::raii::DeviceMemory m_vertexBufferMemory       = nullptr;
+    vk::raii::Buffer m_indexBuffer                    = nullptr;
+    vk::raii::DeviceMemory m_indexBufferMemory        = nullptr;
     vk::raii::CommandPool m_commandPool               = nullptr;
     std::vector<vk::raii::CommandBuffer> m_commandBuffers{};
     std::vector<vk::raii::Semaphore> m_presentCompleteSemaphores{};

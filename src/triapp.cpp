@@ -75,6 +75,8 @@ void TriApp::initVulkan() {
         std::println("Command pool created");
     createVertexBuffer();
         std::println("Vertex buffer created");
+    createIndexBuffer();
+        std::println("Index buffer created");
     createCommandBuffers();
         std::println("Command buffer created");
     createSyncObjects();
@@ -140,40 +142,41 @@ void TriApp::drawFrame() {
 }
 
 void TriApp::createInstance() {
-    auto appInfo = vk::ApplicationInfo{}
-                       .setPApplicationName("Hello triangle")
-                       .setApplicationVersion(VK_MAKE_VERSION(1, 0, 0))
-                       .setPEngineName("No Engine")
-                       .setEngineVersion(VK_MAKE_VERSION(1, 0, 0))
-                       .setApiVersion(VK_MAKE_VERSION(1, 4, 0));
+    const auto appInfo = vk::ApplicationInfo{}
+                             .setPApplicationName("Hello triangle")
+                             .setApplicationVersion(VK_MAKE_VERSION(1, 0, 0))
+                             .setPEngineName("No Engine")
+                             .setEngineVersion(VK_MAKE_VERSION(1, 0, 0))
+                             .setApiVersion(VK_MAKE_VERSION(1, 4, 0));
     // Get required validation layers
     auto requiredLayers = std::vector<char const *>{};
     if (enableValidationLayers) {
         requiredLayers.assign(validationLayers.begin(), validationLayers.end());
     }
     // Check if validation layers are supported by vulkan implementation
-    auto layerProperties     = m_context.enumerateInstanceLayerProperties();
-    auto unsuppoertedLayerIt = std::ranges::find_if(requiredLayers, [&layerProperties](
-                                                                        auto const &requiredLayer) {
-        return std::ranges::none_of(layerProperties, [requiredLayer](auto const &layerProperty) {
-            return strcmp(layerProperty.layerName, requiredLayer) == 0;
+    const auto layerProperties = m_context.enumerateInstanceLayerProperties();
+    const auto unsuppoertedLayerIt =
+        std::ranges::find_if(requiredLayers, [&layerProperties](auto const &requiredLayer) {
+            return std::ranges::none_of(
+                layerProperties, [requiredLayer](auto const &layerProperty) {
+                    return strcmp(layerProperty.layerName, requiredLayer) == 0;
+                });
         });
-    });
     if (unsuppoertedLayerIt != requiredLayers.end()) {
         throw std::runtime_error("Required layer not supported: " +
                                  std::string(*unsuppoertedLayerIt));
     }
     // Get all supported extensions
-    auto const extensionPropierties = m_context.enumerateInstanceExtensionProperties();
+    const auto extensionPropierties = m_context.enumerateInstanceExtensionProperties();
     // Print avialable extensions (can be removed)
     std::println("Available extensions:");
     for (const auto &ext : extensionPropierties) {
         std::println("\t '{}'", std::string(ext.extensionName));
     }
     // Get requires extensions
-    auto requiredExtensions = getRequiredInstanceExtensions();
+    const auto requiredExtensions = getRequiredInstanceExtensions();
     // Check if required extensions are supported by Vulkan implementation
-    auto unsupportedPropertyIt = std::ranges::find_if(
+    const auto unsupportedPropertyIt = std::ranges::find_if(
         requiredExtensions, [&extensionPropierties](auto const &requiredExtension) {
             return std::ranges::none_of(
                 extensionPropierties, [requiredExtension](auto const &extensionPropierty) {
@@ -185,7 +188,7 @@ void TriApp::createInstance() {
                                  std::string(*unsupportedPropertyIt));
     }
     // Create instance
-    auto createInfo =
+    const auto createInfo =
         vk::InstanceCreateInfo{}
             .setPApplicationInfo(&appInfo)
             .setFlags(vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR)
@@ -199,17 +202,17 @@ void TriApp::createInstance() {
 void TriApp::setUpDebugMessenger() {
     if (!enableValidationLayers)
         return;
-    vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
+    const vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
         vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
         vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
-    vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
+    const vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
         vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
         vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
         vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
-    auto debugUtilsMessengerCreateInfoEXT = vk::DebugUtilsMessengerCreateInfoEXT{}
-                                                .setMessageSeverity(severityFlags)
-                                                .setMessageType(messageTypeFlags)
-                                                .setPfnUserCallback(&debugCallback);
+    const auto debugUtilsMessengerCreateInfoEXT = vk::DebugUtilsMessengerCreateInfoEXT{}
+                                                      .setMessageSeverity(severityFlags)
+                                                      .setMessageType(messageTypeFlags)
+                                                      .setPfnUserCallback(&debugCallback);
     m_debugMessenger = m_instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
 }
 
@@ -478,25 +481,86 @@ void TriApp::createGraphicsPipeline() {
                                 .setRenderPass(nullptr);
     m_graphicsPipeline    = vk::raii::Pipeline(m_device, nullptr, pipelineCI);
 }
-
+/*
 void TriApp::createVertexBuffer() {
-    const auto bufferInfo = vk::BufferCreateInfo{}
-                                .setSize(sizeof(vertices[0]) * vertices.size())
-                                .setUsage(vk::BufferUsageFlagBits::eVertexBuffer)
-                                .setSharingMode(vk::SharingMode::eExclusive);
-    m_vertexBuffer        = vk::raii::Buffer(m_device, bufferInfo);
-    auto memRequirements  = m_vertexBuffer.getMemoryRequirements();
+    auto sizeBuffer = vk::DeviceSize{sizeof(vertices[0]) * vertices.size()};
     auto properties =
         vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
-    auto memoryAI =
+    createBuffer(sizeBuffer, vk::BufferUsageFlagBits::eVertexBuffer, properties, m_vertexBuffer,
+                 m_vertexBufferMemory);
+    void *data = m_vertexBufferMemory.mapMemory(0, sizeBuffer);
+    std::memcpy(data, vertices.data(), (size_t)sizeBuffer);
+    m_vertexBufferMemory.unmapMemory();
+}
+*/
+
+void TriApp::createIndexBuffer() {
+    auto bufferSize                = vk::DeviceSize{sizeof(indices[0]) * indices.size()};
+    vk::raii::Buffer stagingBuffer = nullptr;
+    vk::raii::DeviceMemory stagingBufferMemory = nullptr;
+    auto usage = vk::BufferUsageFlags{vk::BufferUsageFlagBits::eTransferSrc};
+    auto properties =
+        vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
+    createBuffer(bufferSize, usage, properties, stagingBuffer, stagingBufferMemory);
+    void *data = stagingBufferMemory.mapMemory(0, bufferSize);
+    memcpy(data, indices.data(), (size_t)bufferSize);
+    stagingBufferMemory.unmapMemory();
+    usage      = vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst;
+    properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+    createBuffer(bufferSize, usage, properties, m_indexBuffer, m_indexBufferMemory);
+    copyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
+}
+
+void TriApp::createVertexBuffer() {
+    const auto bufferSize = vk::DeviceSize{sizeof(vertices[0]) * vertices.size()};
+    // Create staging buffer
+    auto usage = vk::BufferUsageFlags{vk::BufferUsageFlagBits::eTransferSrc};
+    auto properties =
+        vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
+    vk::raii::Buffer stagingBuffer             = nullptr;
+    vk::raii::DeviceMemory stagingBufferMemory = nullptr;
+    createBuffer(bufferSize, usage, properties, stagingBuffer, stagingBufferMemory);
+    void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+    memcpy(dataStaging, vertices.data(), (size_t)bufferSize);
+    stagingBufferMemory.unmapMemory();
+    // create vertex buffer
+    usage      = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst;
+    properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+    createBuffer(bufferSize, usage, properties, m_vertexBuffer, m_vertexBufferMemory);
+    // copy from staging buffer to vertex buffer
+    copyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
+}
+
+void TriApp::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
+                          vk::MemoryPropertyFlags properties, vk::raii::Buffer &buffer,
+                          vk::raii::DeviceMemory &bufferMemory) {
+    const auto bufferCI = vk::BufferCreateInfo{}.setSize(size).setUsage(usage).setSharingMode(
+        vk::SharingMode::eExclusive);
+    buffer                     = vk::raii::Buffer(m_device, bufferCI);
+    const auto memRequirements = buffer.getMemoryRequirements();
+    const auto memoryAI =
         vk::MemoryAllocateInfo{}
             .setAllocationSize(memRequirements.size)
             .setMemoryTypeIndex(findMemoryType(memRequirements.memoryTypeBits, properties));
-    m_vertexBufferMemory = vk::raii::DeviceMemory(m_device, memoryAI);
-    m_vertexBuffer.bindMemory(*m_vertexBufferMemory, 0);
-    void *data = m_vertexBufferMemory.mapMemory(0, bufferInfo.size);
-    std::memcpy(data, vertices.data(), bufferInfo.size);
-    m_vertexBufferMemory.unmapMemory();
+    bufferMemory = vk::raii::DeviceMemory(m_device, memoryAI);
+    buffer.bindMemory(*bufferMemory, 0);
+}
+
+void TriApp::copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer,
+                        vk::DeviceSize size) {
+    const auto commandBufferAI   = vk::CommandBufferAllocateInfo{}
+                                       .setCommandPool(m_commandPool)
+                                       .setLevel(vk::CommandBufferLevel::ePrimary)
+                                       .setCommandBufferCount(1);
+    const auto commandCopyBuffer = vk::raii::CommandBuffer(
+        std::move(m_device.allocateCommandBuffers(commandBufferAI).front()));
+    commandCopyBuffer.begin(
+        vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    commandCopyBuffer.copyBuffer(srcBuffer, dstBuffer, vk::BufferCopy(0, 0, size));
+    commandCopyBuffer.end();
+    m_queue.submit(
+        vk::SubmitInfo{}.setCommandBufferCount(1).setPCommandBuffers(&*commandCopyBuffer), nullptr);
+    m_queue.waitIdle();
 }
 
 auto TriApp::findMemoryType(std::uint32_t typeFilter, vk::MemoryPropertyFlags properties)
@@ -540,7 +604,7 @@ void TriApp::createSyncObjects() {
     }
 }
 
-auto TriApp::createShaderModule(const std::vector<char> &code) -> const vk::raii::ShaderModule {
+auto TriApp::createShaderModule(std::span<const char> code) -> const vk::raii::ShaderModule {
     const auto shaderModuleCI = vk::ShaderModuleCreateInfo{}
                                     .setCodeSize(code.size() * sizeof(char))
                                     .setPCode(reinterpret_cast<const std::uint32_t *>(code.data()));
@@ -585,7 +649,7 @@ void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
     commandBuffer.beginRendering(renderingInfo);
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
     commandBuffer.bindVertexBuffers(0, *m_vertexBuffer, {0});
-
+    commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint32);
     commandBuffer.setViewport(0, vk::Viewport{}
                                      .setX(0.0f)
                                      .setY(0.0f)
@@ -596,7 +660,7 @@ void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
     commandBuffer.setScissor(0, vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent));
 
     // Num of vertices and instances to draw
-    commandBuffer.draw(static_cast<std::uint32_t>(vertices.size()), 1, 0, 0);
+    commandBuffer.drawIndexed(indices.size(), 1, 0, 0, 0);
     commandBuffer.endRendering();
 
     transition_image_layout(imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
