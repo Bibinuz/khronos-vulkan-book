@@ -1,7 +1,10 @@
 #include "triapp.hpp"
 
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
+
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -14,6 +17,11 @@
 #include <vector>
 
 #include "GLFW/glfw3.h"
+#include "glm/ext/matrix_clip_space.hpp"
+#include "glm/ext/matrix_transform.hpp"
+#include "glm/ext/vector_float3.hpp"
+#include "glm/trigonometric.hpp"
+#include "transform.hpp"
 #include "vertex.hpp"
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_core.h"
@@ -69,6 +77,14 @@ void TriApp::initVulkan() {
         std::println("Swapchain Created");
     createImageViews();
         std::println("Image views created");
+    createUniformBuffers();
+        std::println("Uniform buffers created");
+    createDescriptiorSetLayout();
+        std::println("Descriptor set layout created");
+    createDescriptorPool();
+        std::println("Descriptor pool created");
+    createDescriptorSets();
+        std::println("Descriptor sets created");
     createGraphicsPipeline();
         std::println("Graphics pipeline layout created");
     createCommandPool();
@@ -103,6 +119,7 @@ void TriApp::drawFrame() {
         assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
+    updateUniformBuffer(m_frameIndex);
     m_device.resetFences(*m_inFlightFences[m_frameIndex]);
     m_commandBuffers[m_frameIndex].reset();
     recordCommandBuffer(imageIndex);
@@ -410,6 +427,18 @@ void TriApp::createImageViews() {
     }
 }
 
+void TriApp::createDescriptiorSetLayout() {
+    const auto uboLayoutBinding = vk::DescriptorSetLayoutBinding{}
+                                      .setBinding(0)
+                                      .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+                                      .setDescriptorCount(1)
+                                      .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+                                      .setPImmutableSamplers(nullptr);
+    const auto layoutCI =
+        vk::DescriptorSetLayoutCreateInfo{}.setBindingCount(1).setPBindings(&uboLayoutBinding);
+    m_descriptorSetLayout = vk::raii::DescriptorSetLayout(m_device, layoutCI);
+}
+
 void TriApp::createGraphicsPipeline() {
     const auto shaderCode          = readFile("./shaders/slang.spv");
     const auto shaderModule        = createShaderModule(shaderCode);
@@ -439,7 +468,7 @@ void TriApp::createGraphicsPipeline() {
                                    .setRasterizerDiscardEnable(vk::False)
                                    .setPolygonMode(vk::PolygonMode::eFill)
                                    .setCullMode(vk::CullModeFlagBits::eBack)
-                                   .setFrontFace(vk::FrontFace::eClockwise)
+                                   .setFrontFace(vk::FrontFace::eCounterClockwise)
                                    .setDepthBiasEnable(vk::False)
                                    .setLineWidth(1.0f);
     const auto multisampling = vk::PipelineMultisampleStateCreateInfo{}
@@ -460,9 +489,11 @@ void TriApp::createGraphicsPipeline() {
         vk::PipelineDynamicStateCreateInfo{}
             .setDynamicStateCount(static_cast<std::uint32_t>(dynamicStates.size()))
             .setPDynamicStates(dynamicStates.data());
-    const auto pipelineLayoutCI =
-        vk::PipelineLayoutCreateInfo{}.setSetLayoutCount(0).setPushConstantRangeCount(0);
-    m_pipelineLayout = vk::raii::PipelineLayout(m_device, pipelineLayoutCI);
+    const auto pipelineLayoutCI = vk::PipelineLayoutCreateInfo{}
+                                      .setSetLayoutCount(1)
+                                      .setPSetLayouts(&*m_descriptorSetLayout)
+                                      .setPushConstantRangeCount(0);
+    m_pipelineLayout            = vk::raii::PipelineLayout(m_device, pipelineLayoutCI);
     const auto pipelineRenderingCI =
         vk::PipelineRenderingCreateInfo{}.setColorAttachmentCount(1).setPColorAttachmentFormats(
             &m_swapChainSurfaceFormat.format);
@@ -531,6 +562,64 @@ void TriApp::createVertexBuffer() {
     copyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
 }
 
+void TriApp::createUniformBuffers() {
+    m_uniformBuffers.clear();
+    m_uniformBuffersMemory.clear();
+    m_uniformBuffersMapped.clear();
+    auto usage = vk::BufferUsageFlags{vk::BufferUsageFlagBits::eUniformBuffer};
+    auto properties =
+        vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
+    for (std::size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        const auto bufferSize            = vk::DeviceSize{sizeof(UniformModelObject)};
+        vk::raii::Buffer buffer          = nullptr;
+        vk::raii::DeviceMemory bufferMem = nullptr;
+        createBuffer(bufferSize, usage, properties, buffer, bufferMem);
+        m_uniformBuffers.emplace_back(std::move(buffer));
+        m_uniformBuffersMemory.emplace_back(std::move(bufferMem));
+        m_uniformBuffersMapped.emplace_back(m_uniformBuffersMemory[i].mapMemory(0, bufferSize));
+    }
+}
+
+void TriApp::createDescriptorPool() {
+    const auto poolSize = vk::DescriptorPoolSize{}
+                              .setType(vk::DescriptorType::eUniformBuffer)
+                              .setDescriptorCount(MAX_FRAMES_IN_FLIGHT);
+    const auto poolInfo = vk::DescriptorPoolCreateInfo{}
+                              .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+                              .setMaxSets(MAX_FRAMES_IN_FLIGHT)
+                              .setPoolSizeCount(1)
+                              .setPPoolSizes(&poolSize);
+    m_descriptorPool    = vk::raii::DescriptorPool(m_device, poolInfo);
+}
+
+void TriApp::createDescriptorSets() {
+    const auto layouts =
+        std::vector<vk::DescriptorSetLayout>(MAX_FRAMES_IN_FLIGHT, *m_descriptorSetLayout);
+    const auto descriptorSetAI =
+        vk::DescriptorSetAllocateInfo{}
+            .setDescriptorPool(m_descriptorPool)
+            .setDescriptorSetCount(static_cast<std::uint32_t>(layouts.size()))
+            .setPSetLayouts(layouts.data());
+    m_descriptorSets.clear();
+    m_descriptorSets = m_device.allocateDescriptorSets(descriptorSetAI);
+    for (std::size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        const auto bufferInfo =
+            vk::DescriptorBufferInfo{}
+                .setBuffer(m_uniformBuffers[i])
+                .setOffset(0)
+                //.setRange(VK_WHOLE_SIZE) if we are overriding the hole buffer this is equivalent
+                .setRange(vk::DeviceSize{sizeof(UniformModelObject)});
+        const auto descriptorWrite = vk::WriteDescriptorSet{}
+                                         .setDstSet(m_descriptorSets[i])
+                                         .setDstBinding(0)
+                                         .setDstArrayElement(0)
+                                         .setDescriptorCount(1)
+                                         .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+                                         .setPBufferInfo(&bufferInfo);
+        m_device.updateDescriptorSets(descriptorWrite, {});
+    }
+}
+
 void TriApp::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                           vk::MemoryPropertyFlags properties, vk::raii::Buffer &buffer,
                           vk::raii::DeviceMemory &bufferMemory) {
@@ -563,6 +652,23 @@ void TriApp::copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer
     m_queue.waitIdle();
 }
 
+void TriApp::updateUniformBuffer(std::uint32_t currentImg) {
+    static auto startTime  = std::chrono::high_resolution_clock::now();
+    const auto currentTime = std::chrono::high_resolution_clock::now();
+    const auto time        = std::chrono::duration<float>(currentTime - startTime).count();
+    auto ubo               = UniformModelObject{};
+    ubo.model =
+        glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+                           glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.proj = glm::perspective(glm::radians(120.0f),
+                                static_cast<float>(m_swapChainExtent.width) /
+                                    static_cast<float>(m_swapChainExtent.height),
+                                0.1f, 10.f);
+    ubo.proj[1][1] *= -1;
+    memcpy(m_uniformBuffersMapped[currentImg], &ubo, sizeof(ubo));
+}
+
 auto TriApp::findMemoryType(std::uint32_t typeFilter, vk::MemoryPropertyFlags properties)
     -> std::uint32_t {
     auto memProperties = m_physicalDevice.getMemoryProperties();
@@ -593,7 +699,6 @@ void TriApp::createCommandBuffers() {
 void TriApp::createSyncObjects() {
     assert(m_presentCompleteSemaphores.empty() && m_renderFinishedSemaphores.empty() &&
            m_inFlightFences.empty());
-
     for (std::size_t i = 0; i < m_swapChainImages.size(); ++i) {
         m_renderFinishedSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo{});
     }
@@ -627,7 +732,6 @@ auto TriApp::readFile(const std::string &fileName) -> std::vector<char> {
 void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
     auto &commandBuffer = m_commandBuffers[m_frameIndex];
     commandBuffer.begin({});
-
     transition_image_layout(imageIndex, vk::ImageLayout::eUndefined,
                             vk::ImageLayout::eColorAttachmentOptimal, {},
                             vk::AccessFlagBits2::eColorAttachmentWrite,
@@ -658,11 +762,11 @@ void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
                                      .setMinDepth(0.0f)
                                      .setMaxDepth(1.0f));
     commandBuffer.setScissor(0, vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent));
-
+    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0,
+                                     *m_descriptorSets[m_frameIndex], nullptr);
     // Num of vertices and instances to draw
     commandBuffer.drawIndexed(indices.size(), 1, 0, 0, 0);
     commandBuffer.endRendering();
-
     transition_image_layout(imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
                             vk::ImageLayout::ePresentSrcKHR,
                             vk::AccessFlagBits2::eColorAttachmentWrite, {},
