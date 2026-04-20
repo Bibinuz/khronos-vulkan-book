@@ -1,6 +1,7 @@
 #include "triapp.hpp"
 
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
+#define STB_IMAGE_IMPLEMENTATION
 
 #include <algorithm>
 #include <cassert>
@@ -21,6 +22,7 @@
 #include "glm/ext/matrix_transform.hpp"
 #include "glm/ext/vector_float3.hpp"
 #include "glm/trigonometric.hpp"
+#include "stb/stb_image.h"
 #include "transform.hpp"
 #include "vertex.hpp"
 #include "vulkan/vulkan.hpp"
@@ -89,6 +91,12 @@ void TriApp::initVulkan() {
         std::println("Graphics pipeline layout created");
     createCommandPool();
         std::println("Command pool created");
+    createTextureImage();
+        std::println("Texture image created");
+    createTextureImageView();
+        std::println("Texture image view created");
+    createTextureSampler();
+        std::println("Texture sampler created");
     createVertexBuffer();
         std::println("Vertex buffer created");
     createIndexBuffer();
@@ -266,6 +274,7 @@ auto TriApp::isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) ->
         vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
         vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
     bool supportsReqFeat =
+        features.template get<vk::PhysicalDeviceFeatures2>().features.samplerAnisotropy &&
         features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
         features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
         features.template get<vk::PhysicalDeviceVulkan13Features>().synchronization2 &&
@@ -309,7 +318,8 @@ void TriApp::createLogicalDevice() {
     }
     // Any new feature i want to enable must go here
     const auto featureChain =
-        vk::StructureChain{vk::PhysicalDeviceFeatures2{},
+        vk::StructureChain{vk::PhysicalDeviceFeatures2{}.setFeatures(
+                               vk::PhysicalDeviceFeatures{}.setSamplerAnisotropy(vk::True)),
                            vk::PhysicalDeviceVulkan11Features{} //
                                .setShaderDrawParameters(vk::True),
                            vk::PhysicalDeviceVulkan13Features{} //
@@ -408,32 +418,113 @@ void TriApp::createSwapChain() {
     m_swapChainImages           = m_swapChain.getImages();
 }
 
+void TriApp::createTextureImage() {
+    std::int32_t texWidth{}, texHeight{}, texChannels{};
+    const auto pixels =
+        stbi_load("textures/texture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    const auto imageSize = vk::DeviceSize(texWidth * texHeight * 4);
+    if (!pixels) {
+        throw std::runtime_error("Failed to load texture image");
+    }
+    vk::raii::Buffer stagingBuffer({});
+    vk::raii::DeviceMemory stagingBufferMemory({});
+    auto usage = vk::BufferUsageFlags{vk::BufferUsageFlagBits::eTransferSrc};
+    auto properties =
+        vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
+    createBuffer(imageSize, usage, properties, stagingBuffer, stagingBufferMemory);
+    void *data = stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixels, imageSize);
+    stagingBufferMemory.unmapMemory();
+    stbi_image_free(pixels);
+    // Create image
+    constexpr auto format = vk::Format::eR8G8B8A8Srgb;
+    constexpr auto tiling = vk::ImageTiling::eOptimal;
+    constexpr auto usageI = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+    constexpr auto proper = vk::MemoryPropertyFlagBits::eDeviceLocal;
+    createImage((std::uint32_t)texWidth, (std::uint32_t)texHeight, format, tiling, usageI, proper,
+                m_textureImage, m_textureImageMemory);
+    transitionImageLayout(m_textureImage, vk::ImageLayout::eUndefined,
+                          vk::ImageLayout::eTransferDstOptimal);
+    copyBufferToImage(stagingBuffer, m_textureImage, static_cast<std::uint32_t>(texWidth),
+                      static_cast<std::uint32_t>(texHeight));
+    transitionImageLayout(m_textureImage, vk::ImageLayout::eTransferDstOptimal,
+                          vk::ImageLayout::eShaderReadOnlyOptimal);
+}
+
+void TriApp::createImage(std::uint32_t widht, std::uint32_t height, vk::Format format,
+                         vk::ImageTiling tiling, vk::ImageUsageFlags usage,
+                         vk::MemoryPropertyFlags properties, vk::raii::Image &image,
+                         vk::raii::DeviceMemory &imageMemory) {
+    const auto imageCI         = vk::ImageCreateInfo{}
+                                     .setImageType(vk::ImageType::e2D)
+                                     .setFormat(format)
+                                     .setExtent(vk::Extent3D{widht, height, 1})
+                                     .setMipLevels(1)
+                                     .setArrayLayers(1)
+                                     .setSamples(vk::SampleCountFlagBits::e1)
+                                     .setTiling(tiling)
+                                     .setUsage(usage)
+                                     .setSharingMode(vk::SharingMode::eExclusive);
+    image                      = vk::raii::Image(m_device, imageCI);
+    const auto memRequirements = image.getMemoryRequirements();
+    const auto memoryAI =
+        vk::MemoryAllocateInfo{}
+            .setAllocationSize(memRequirements.size)
+            .setMemoryTypeIndex(findMemoryType(memRequirements.memoryTypeBits, properties));
+    imageMemory = vk::raii::DeviceMemory(m_device, memoryAI);
+    image.bindMemory(imageMemory, 0);
+}
+
+auto TriApp::createImageView(const vk::Image &image, vk::Format format) -> vk::raii::ImageView {
+    constexpr auto subResRange = vk::ImageSubresourceRange{}
+                                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                     .setLevelCount(1)
+                                     .setLayerCount(1);
+    const auto imageViewCI     = vk::ImageViewCreateInfo{}
+                                     .setImage(image)
+                                     .setViewType(vk::ImageViewType::e2D)
+                                     .setFormat(format)
+                                     .setSubresourceRange(subResRange);
+    return vk::raii::ImageView(m_device, imageViewCI);
+}
+
+void TriApp::createTextureImageView() {
+    m_textureImageView = createImageView(*m_textureImage, vk::Format::eR8G8B8A8Srgb);
+}
+
 void TriApp::createImageViews() {
-    assert(m_swapChainImageViews.empty());
-    const auto eI          = vk::ComponentSwizzle::eIdentity;
-    const auto components  = vk::ComponentMapping{}.setR(eI).setG(eI).setB(eI).setA(eI);
-    const auto subResRange = vk::ImageSubresourceRange{}
-                                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                                 .setLevelCount(1)
-                                 .setLayerCount(1);
-    auto imageViewCI       = vk::ImageViewCreateInfo{}
-                                 .setViewType(vk::ImageViewType::e2D)
-                                 .setFormat(m_swapChainSurfaceFormat.format)
-                                 .setSubresourceRange(subResRange)
-                                 .setComponents(components);
-    for (auto &image : m_swapChainImages) {
-        imageViewCI.image = image;
-        m_swapChainImageViews.emplace_back(m_device, imageViewCI);
+    m_swapChainImageViews.clear();
+    for (std::size_t i = 0; i < m_swapChainImages.size(); ++i) {
+        m_swapChainImageViews.emplace_back(
+            createImageView(m_swapChainImages[i], m_swapChainSurfaceFormat.format));
     }
 }
 
+void TriApp::createTextureSampler() {
+    const auto properties = m_physicalDevice.getProperties();
+    auto samplerCI        = vk::SamplerCreateInfo{}
+                                .setMagFilter(vk::Filter::eLinear)
+                                .setMinFilter(vk::Filter::eLinear)
+                                .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+                                .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+                                .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+                                .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+                                .setAnisotropyEnable(vk::True)
+                                .setMaxAnisotropy(properties.limits.maxSamplerAnisotropy)
+                                .setCompareEnable(vk::False)
+                                .setCompareOp(vk::CompareOp::eAlways)
+                                .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+                                .setUnnormalizedCoordinates(vk::False);
+    m_textureSampler      = vk::raii::Sampler(m_device, samplerCI);
+}
+
 void TriApp::createDescriptiorSetLayout() {
-    const auto uboLayoutBinding = vk::DescriptorSetLayoutBinding{}
-                                      .setBinding(0)
-                                      .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-                                      .setDescriptorCount(1)
-                                      .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-                                      .setPImmutableSamplers(nullptr);
+    constexpr auto uboLayoutBinding = vk::DescriptorSetLayoutBinding{}
+                                          .setBinding(0)
+                                          .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+                                          .setDescriptorCount(1)
+                                          .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+                                          .setPImmutableSamplers(nullptr);
     const auto layoutCI =
         vk::DescriptorSetLayoutCreateInfo{}.setBindingCount(1).setPBindings(&uboLayoutBinding);
     m_descriptorSetLayout = vk::raii::DescriptorSetLayout(m_device, layoutCI);
@@ -526,27 +617,35 @@ void TriApp::createVertexBuffer() {
 */
 
 void TriApp::createIndexBuffer() {
-    auto bufferSize                = vk::DeviceSize{sizeof(indices[0]) * indices.size()};
-    vk::raii::Buffer stagingBuffer = nullptr;
-    vk::raii::DeviceMemory stagingBufferMemory = nullptr;
-    auto usage = vk::BufferUsageFlags{vk::BufferUsageFlagBits::eTransferSrc};
-    auto properties =
-        vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
-    createBuffer(bufferSize, usage, properties, stagingBuffer, stagingBufferMemory);
-    void *data = stagingBufferMemory.mapMemory(0, bufferSize);
-    memcpy(data, indices.data(), (size_t)bufferSize);
-    stagingBufferMemory.unmapMemory();
-    usage      = vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst;
-    properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
-    createBuffer(bufferSize, usage, properties, m_indexBuffer, m_indexBufferMemory);
+    const auto bufferSize = vk::DeviceSize{sizeof(indices[0]) * indices.size()};
+    // Create staging buffer
+    auto [stagingBuffer, stagingBufferMemory] = createStagingBuffer(bufferSize);
+    // create index buffer
+    constexpr auto usageIBO =
+        vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst;
+    constexpr auto propertiesIBO = vk::MemoryPropertyFlagBits::eDeviceLocal;
+    createBuffer(bufferSize, usageIBO, propertiesIBO, m_indexBuffer, m_indexBufferMemory);
     copyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
 }
 
 void TriApp::createVertexBuffer() {
     const auto bufferSize = vk::DeviceSize{sizeof(vertices[0]) * vertices.size()};
     // Create staging buffer
-    auto usage = vk::BufferUsageFlags{vk::BufferUsageFlagBits::eTransferSrc};
-    auto properties =
+    auto [stagingBuffer, stagingBufferMemory] = createStagingBuffer(bufferSize);
+    // create vertex buffer
+    constexpr auto usageVBO =
+        vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst;
+    constexpr auto propertiesVBO = vk::MemoryPropertyFlagBits::eDeviceLocal;
+    createBuffer(bufferSize, usageVBO, propertiesVBO, m_vertexBuffer, m_vertexBufferMemory);
+    // copy from staging buffer to vertex buffer
+    copyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
+}
+
+auto TriApp::createStagingBuffer(vk::DeviceSize bufferSize)
+    -> std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> {
+    // helper function to avoid duplicate code on createInxezBuffer and createVertexBuffer
+    constexpr auto usage = vk::BufferUsageFlags{vk::BufferUsageFlagBits::eTransferSrc};
+    constexpr auto properties =
         vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
     vk::raii::Buffer stagingBuffer             = nullptr;
     vk::raii::DeviceMemory stagingBufferMemory = nullptr;
@@ -554,12 +653,7 @@ void TriApp::createVertexBuffer() {
     void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
     memcpy(dataStaging, vertices.data(), (size_t)bufferSize);
     stagingBufferMemory.unmapMemory();
-    // create vertex buffer
-    usage      = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst;
-    properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
-    createBuffer(bufferSize, usage, properties, m_vertexBuffer, m_vertexBufferMemory);
-    // copy from staging buffer to vertex buffer
-    copyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
+    return {std::move(stagingBuffer), std::move(stagingBufferMemory)};
 }
 
 void TriApp::createUniformBuffers() {
@@ -637,19 +731,9 @@ void TriApp::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
 
 void TriApp::copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer,
                         vk::DeviceSize size) {
-    const auto commandBufferAI   = vk::CommandBufferAllocateInfo{}
-                                       .setCommandPool(m_commandPool)
-                                       .setLevel(vk::CommandBufferLevel::ePrimary)
-                                       .setCommandBufferCount(1);
-    const auto commandCopyBuffer = vk::raii::CommandBuffer(
-        std::move(m_device.allocateCommandBuffers(commandBufferAI).front()));
-    commandCopyBuffer.begin(
-        vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-    commandCopyBuffer.copyBuffer(srcBuffer, dstBuffer, vk::BufferCopy(0, 0, size));
-    commandCopyBuffer.end();
-    m_queue.submit(
-        vk::SubmitInfo{}.setCommandBufferCount(1).setPCommandBuffers(&*commandCopyBuffer), nullptr);
-    m_queue.waitIdle();
+    auto commandCopyBuffer = beginSingleTimeCommands();
+    commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy{}.setSize(size));
+    endSingleTimeCommands(commandCopyBuffer);
 }
 
 void TriApp::updateUniformBuffer(std::uint32_t currentImg) {
@@ -809,6 +893,68 @@ void TriApp::recreateSwapChain() {
     cleanupSwapChain();
     createSwapChain();
     createImageViews();
+}
+
+auto TriApp::beginSingleTimeCommands() -> vk::raii::CommandBuffer {
+    const auto commandBufferAI = vk::CommandBufferAllocateInfo{}
+                                     .setCommandPool(m_commandPool)
+                                     .setLevel(vk::CommandBufferLevel::ePrimary)
+                                     .setCommandBufferCount(1);
+    auto commandBuffer         = vk::raii::CommandBuffer(
+        std::move(m_device.allocateCommandBuffers(commandBufferAI).front()));
+    const auto beginInfo =
+        vk::CommandBufferBeginInfo{}.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+    commandBuffer.begin(beginInfo);
+    return commandBuffer;
+}
+
+void TriApp::endSingleTimeCommands(vk::raii::CommandBuffer &commandBuffer) {
+    commandBuffer.end();
+    auto submitInfo = vk::SubmitInfo{}.setCommandBufferCount(1).setPCommandBuffers(&*commandBuffer);
+    m_queue.submit(submitInfo, nullptr);
+    m_queue.waitIdle();
+}
+
+void TriApp::transitionImageLayout(const vk::raii::Image &image, vk::ImageLayout oldLayout,
+                                   vk::ImageLayout newLayout) {
+    auto commandBuffer = beginSingleTimeCommands();
+    auto barrier       = vk::ImageMemoryBarrier{}
+                             .setOldLayout(oldLayout)
+                             .setNewLayout(newLayout)
+                             .setImage(image)
+                             .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+    auto sourceStage   = vk::PipelineStageFlags{};
+    auto destinStage   = vk::PipelineStageFlags{};
+    if (oldLayout == vk::ImageLayout::eUndefined &&
+        newLayout == vk::ImageLayout::eTransferDstOptimal) {
+        barrier.setSrcAccessMask({}).setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+        sourceStage = vk::PipelineStageFlagBits::eTopOfPipe;
+        destinStage = vk::PipelineStageFlagBits::eTransfer;
+    } else if (oldLayout == vk::ImageLayout::eTransferDstOptimal &&
+               newLayout == vk::ImageLayout::eShaderReadOnlyOptimal) {
+        barrier.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+            .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+        sourceStage = vk::PipelineStageFlagBits::eTransfer;
+        destinStage = vk::PipelineStageFlagBits::eFragmentShader;
+    } else {
+        throw std::invalid_argument("Unsupported layout transition!");
+    }
+    commandBuffer.pipelineBarrier(sourceStage, destinStage, {}, {}, nullptr, barrier);
+    endSingleTimeCommands(commandBuffer);
+}
+
+void TriApp::copyBufferToImage(const vk::raii::Buffer &buffer, vk::raii::Image &image,
+                               std::uint32_t widht, std::uint32_t height) {
+    auto commandBuffer = beginSingleTimeCommands();
+    const auto region  = vk::BufferImageCopy{}
+                             .setBufferOffset(0)
+                             .setBufferRowLength(0)
+                             .setBufferImageHeight(0)
+                             .setImageSubresource({vk::ImageAspectFlagBits::eColor, 0, 0, 1})
+                             .setImageOffset({0, 0, 0})
+                             .setImageExtent({widht, height, 1});
+    commandBuffer.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, {region});
+    endSingleTimeCommands(commandBuffer);
 }
 
 } // namespace vke

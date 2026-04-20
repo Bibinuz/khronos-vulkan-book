@@ -81,6 +81,10 @@ target_sources(vma PRIVATE
 # ignore compiler warnings
 target_compile_options(vma PRIVATE -w)
 
+message(STATUS "[stb]")
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src/stb)
+
 # declare ext library target
 add_library(${PROJECT_NAME} INTERFACE)
 add_library(learn-vk::ext ALIAS ${PROJECT_NAME})

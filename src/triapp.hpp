@@ -6,6 +6,7 @@
 #include "vulkan/vulkan_structs.hpp"
 #include <GLFW/glfw3.h>
 #include <print>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
 
@@ -49,6 +50,9 @@ class TriApp {
     void createUniformBuffers();
     void createDescriptorPool();
     void createDescriptorSets();
+    void createTextureImage();
+    void createTextureImageView();
+    void createTextureSampler();
 
     // Helper functions
     [[nodiscard]] auto getRequiredInstanceExtensions() -> std::vector<const char *>;
@@ -77,9 +81,23 @@ class TriApp {
     void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                       vk::MemoryPropertyFlags properties, vk::raii::Buffer &buffer,
                       vk::raii::DeviceMemory &bufferMemory);
+    auto createStagingBuffer(vk::DeviceSize bufferSize)
+        -> std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>;
     void copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer, vk::DeviceSize size);
     void updateUniformBuffer(std::uint32_t currentImg);
+    void createImage(std::uint32_t widht, std::uint32_t height, vk::Format format,
+                     vk::ImageTiling tiling, vk::ImageUsageFlags usage,
+                     vk::MemoryPropertyFlags properties, vk::raii::Image &image,
+                     vk::raii::DeviceMemory &imageMemory);
     static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
+    auto beginSingleTimeCommands() -> vk::raii::CommandBuffer;
+    void endSingleTimeCommands(vk::raii::CommandBuffer &commandBuffer);
+    void transitionImageLayout(const vk::raii::Image &image, vk::ImageLayout oldLayout,
+                               vk::ImageLayout newLayout);
+    void copyBufferToImage(const vk::raii::Buffer &buffer, vk::raii::Image &image,
+                           std::uint32_t widht, std::uint32_t height);
+    auto createImageView(const vk::Image &image, vk::Format format) -> vk::raii::ImageView;
+
     // Cleanup functions
     void cleanup();
     void cleanupSwapChain();
@@ -114,6 +132,10 @@ class TriApp {
     vk::raii::DeviceMemory m_indexBufferMemory          = nullptr;
     vk::raii::CommandPool m_commandPool                 = nullptr;
     vk::raii::DescriptorPool m_descriptorPool           = nullptr;
+    vk::raii::Image m_textureImage                      = nullptr;
+    vk::raii::DeviceMemory m_textureImageMemory         = nullptr;
+    vk::raii::ImageView m_textureImageView              = nullptr;
+    vk::raii::Sampler m_textureSampler                  = nullptr;
     vk::raii::Context m_context{};
     std::vector<vk::raii::Buffer> m_uniformBuffers{};
     std::vector<vk::raii::DeviceMemory> m_uniformBuffersMemory{};

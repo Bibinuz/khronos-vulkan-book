@@ -22,6 +22,7 @@ add_executable(${PROJECT_NAME})
 # link to ext target
 target_link_libraries(${PROJECT_NAME} PRIVATE
   learn-vk::ext
+  stb
 )
 
 # setup precompiled header
@@ -55,3 +56,10 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
     $<$<NOT:$<CONFIG:Debug>>:/WX> # warnings as errors if not Debug
   )
 endif()
+
+# Copy textures to the build directory after building
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/textures
+    ${CMAKE_CURRENT_BINARY_DIR}/textures
+)
