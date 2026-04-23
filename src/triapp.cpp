@@ -79,14 +79,8 @@ void TriApp::initVulkan() {
         std::println("Swapchain Created");
     createImageViews();
         std::println("Image views created");
-    createUniformBuffers();
-        std::println("Uniform buffers created");
     createDescriptiorSetLayout();
         std::println("Descriptor set layout created");
-    createDescriptorPool();
-        std::println("Descriptor pool created");
-    createDescriptorSets();
-        std::println("Descriptor sets created");
     createGraphicsPipeline();
         std::println("Graphics pipeline layout created");
     createCommandPool();
@@ -101,6 +95,12 @@ void TriApp::initVulkan() {
         std::println("Vertex buffer created");
     createIndexBuffer();
         std::println("Index buffer created");
+    createUniformBuffers();
+        std::println("Uniform buffers created");
+    createDescriptorPool();
+        std::println("Descriptor pool created");
+    createDescriptorSets();
+        std::println("Descriptor sets created");   
     createCommandBuffers();
         std::println("Command buffer created");
     createSyncObjects();
@@ -519,14 +519,23 @@ void TriApp::createTextureSampler() {
 }
 
 void TriApp::createDescriptiorSetLayout() {
-    constexpr auto uboLayoutBinding = vk::DescriptorSetLayoutBinding{}
-                                          .setBinding(0)
-                                          .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-                                          .setDescriptorCount(1)
-                                          .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-                                          .setPImmutableSamplers(nullptr);
-    const auto layoutCI =
-        vk::DescriptorSetLayoutCreateInfo{}.setBindingCount(1).setPBindings(&uboLayoutBinding);
+    constexpr auto bindings =
+        std::array{vk::DescriptorSetLayoutBinding{}
+                       .setBinding(0)
+                       .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+                       .setDescriptorCount(1)
+                       .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+                       .setPImmutableSamplers(nullptr),
+                   vk::DescriptorSetLayoutBinding{}
+                       .setBinding(1)
+                       .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                       .setDescriptorCount(1)
+                       .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+                       .setPImmutableSamplers(nullptr)};
+
+    const auto layoutCI   = vk::DescriptorSetLayoutCreateInfo{}
+                                .setBindingCount(bindings.size())
+                                .setPBindings(bindings.data());
     m_descriptorSetLayout = vk::raii::DescriptorSetLayout(m_device, layoutCI);
 }
 
@@ -619,7 +628,8 @@ void TriApp::createVertexBuffer() {
 void TriApp::createIndexBuffer() {
     const auto bufferSize = vk::DeviceSize{sizeof(indices[0]) * indices.size()};
     // Create staging buffer
-    auto [stagingBuffer, stagingBufferMemory] = createStagingBuffer(bufferSize);
+    auto [stagingBuffer, stagingBufferMemory] =
+        createStagingBuffer(bufferSize, (void *)indices.data());
     // create index buffer
     constexpr auto usageIBO =
         vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst;
@@ -631,7 +641,8 @@ void TriApp::createIndexBuffer() {
 void TriApp::createVertexBuffer() {
     const auto bufferSize = vk::DeviceSize{sizeof(vertices[0]) * vertices.size()};
     // Create staging buffer
-    auto [stagingBuffer, stagingBufferMemory] = createStagingBuffer(bufferSize);
+    auto [stagingBuffer, stagingBufferMemory] =
+        createStagingBuffer(bufferSize, (void *)vertices.data());
     // create vertex buffer
     constexpr auto usageVBO =
         vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst;
@@ -641,7 +652,7 @@ void TriApp::createVertexBuffer() {
     copyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
 }
 
-auto TriApp::createStagingBuffer(vk::DeviceSize bufferSize)
+auto TriApp::createStagingBuffer(vk::DeviceSize bufferSize, void *data)
     -> std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> {
     // helper function to avoid duplicate code on createInxezBuffer and createVertexBuffer
     constexpr auto usage = vk::BufferUsageFlags{vk::BufferUsageFlagBits::eTransferSrc};
@@ -651,7 +662,7 @@ auto TriApp::createStagingBuffer(vk::DeviceSize bufferSize)
     vk::raii::DeviceMemory stagingBufferMemory = nullptr;
     createBuffer(bufferSize, usage, properties, stagingBuffer, stagingBufferMemory);
     void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-    memcpy(dataStaging, vertices.data(), (size_t)bufferSize);
+    memcpy(dataStaging, data, (size_t)bufferSize);
     stagingBufferMemory.unmapMemory();
     return {std::move(stagingBuffer), std::move(stagingBufferMemory)};
 }
@@ -675,14 +686,16 @@ void TriApp::createUniformBuffers() {
 }
 
 void TriApp::createDescriptorPool() {
-    const auto poolSize = vk::DescriptorPoolSize{}
-                              .setType(vk::DescriptorType::eUniformBuffer)
-                              .setDescriptorCount(MAX_FRAMES_IN_FLIGHT);
+    const auto poolSize = std::array{vk::DescriptorPoolSize{}
+                                         .setType(vk::DescriptorType::eUniformBuffer)
+                                         .setDescriptorCount(MAX_FRAMES_IN_FLIGHT),
+                                     vk::DescriptorPoolSize{}
+                                         .setType(vk::DescriptorType::eCombinedImageSampler)
+                                         .setDescriptorCount(MAX_FRAMES_IN_FLIGHT)};
     const auto poolInfo = vk::DescriptorPoolCreateInfo{}
                               .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
                               .setMaxSets(MAX_FRAMES_IN_FLIGHT)
-                              .setPoolSizeCount(1)
-                              .setPPoolSizes(&poolSize);
+                              .setPoolSizes(poolSize);
     m_descriptorPool    = vk::raii::DescriptorPool(m_device, poolInfo);
 }
 
@@ -703,14 +716,26 @@ void TriApp::createDescriptorSets() {
                 .setOffset(0)
                 //.setRange(VK_WHOLE_SIZE) if we are overriding the hole buffer this is equivalent
                 .setRange(vk::DeviceSize{sizeof(UniformModelObject)});
-        const auto descriptorWrite = vk::WriteDescriptorSet{}
-                                         .setDstSet(m_descriptorSets[i])
-                                         .setDstBinding(0)
-                                         .setDstArrayElement(0)
-                                         .setDescriptorCount(1)
-                                         .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-                                         .setPBufferInfo(&bufferInfo);
-        m_device.updateDescriptorSets(descriptorWrite, {});
+        const auto imageInfo = vk::DescriptorImageInfo{}
+                                   .setSampler(m_textureSampler)
+                                   .setImageView(m_textureImageView)
+                                   .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+        const auto descriptorWrites =
+            std::array{vk::WriteDescriptorSet{}
+                           .setDstSet(m_descriptorSets[i])
+                           .setDstBinding(0)
+                           .setDstArrayElement(0)
+                           .setDescriptorCount(1)
+                           .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+                           .setPBufferInfo(&bufferInfo),
+                       vk::WriteDescriptorSet{}
+                           .setDstSet(m_descriptorSets[i])
+                           .setDstBinding(1)
+                           .setDstArrayElement(0)
+                           .setDescriptorCount(1)
+                           .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                           .setPImageInfo(&imageInfo)};
+        m_device.updateDescriptorSets(descriptorWrites, {});
     }
 }
 
@@ -739,13 +764,14 @@ void TriApp::copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer
 void TriApp::updateUniformBuffer(std::uint32_t currentImg) {
     static auto startTime  = std::chrono::high_resolution_clock::now();
     const auto currentTime = std::chrono::high_resolution_clock::now();
-    const auto time        = std::chrono::duration<float>(currentTime - startTime).count();
-    auto ubo               = UniformModelObject{};
+    [[maybe_unused]] const auto time =
+        std::chrono::duration<float>(currentTime - startTime).count();
+    auto ubo = UniformModelObject{};
     ubo.model =
-        glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::rotate(glm::mat4(1.0f), /* time * */ glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view = glm::lookAt(glm::vec3(1.0f, 2.0f, 3.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                            glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.proj = glm::perspective(glm::radians(120.0f),
+    ubo.proj = glm::perspective(glm::radians(70.0f),
                                 static_cast<float>(m_swapChainExtent.width) /
                                     static_cast<float>(m_swapChainExtent.height),
                                 0.1f, 10.f);
@@ -864,27 +890,27 @@ void TriApp::transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout o
                                      vk::AccessFlags2 dst_acces_mask,
                                      vk::PipelineStageFlags2 src_stage_mask,
                                      vk::PipelineStageFlags2 dst_stage_mask) {
-    const auto subResRange    = vk::ImageSubresourceRange{}
-                                    .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                                    .setBaseMipLevel(0)
-                                    .setLevelCount(1)
-                                    .setBaseArrayLayer(0)
-                                    .setLayerCount(1);
-    const auto barrier        = vk::ImageMemoryBarrier2{}
-                                    .setSrcStageMask(src_stage_mask)
-                                    .setSrcAccessMask(src_access_mask)
-                                    .setDstStageMask(dst_stage_mask)
-                                    .setDstAccessMask(dst_acces_mask)
-                                    .setOldLayout(old_layout)
-                                    .setNewLayout(new_layout)
-                                    .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-                                    .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-                                    .setImage(m_swapChainImages[imageIndex])
-                                    .setSubresourceRange(subResRange);
-    const auto dependencyInfo = vk::DependencyInfo{}
-                                    .setDependencyFlags({})
-                                    .setImageMemoryBarrierCount(1)
-                                    .setPImageMemoryBarriers(&barrier);
+    constexpr auto subResRange = vk::ImageSubresourceRange{}
+                                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                     .setBaseMipLevel(0)
+                                     .setLevelCount(1)
+                                     .setBaseArrayLayer(0)
+                                     .setLayerCount(1);
+    const auto barrier         = vk::ImageMemoryBarrier2{}
+                                     .setSrcStageMask(src_stage_mask)
+                                     .setSrcAccessMask(src_access_mask)
+                                     .setDstStageMask(dst_stage_mask)
+                                     .setDstAccessMask(dst_acces_mask)
+                                     .setOldLayout(old_layout)
+                                     .setNewLayout(new_layout)
+                                     .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                                     .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                                     .setImage(m_swapChainImages[imageIndex])
+                                     .setSubresourceRange(subResRange);
+    const auto dependencyInfo  = vk::DependencyInfo{}
+                                     .setDependencyFlags({})
+                                     .setImageMemoryBarrierCount(1)
+                                     .setPImageMemoryBarriers(&barrier);
     m_commandBuffers[m_frameIndex].pipelineBarrier2(dependencyInfo);
 }
 

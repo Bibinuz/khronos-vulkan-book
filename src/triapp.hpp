@@ -81,7 +81,7 @@ class TriApp {
     void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                       vk::MemoryPropertyFlags properties, vk::raii::Buffer &buffer,
                       vk::raii::DeviceMemory &bufferMemory);
-    auto createStagingBuffer(vk::DeviceSize bufferSize)
+    auto createStagingBuffer(vk::DeviceSize bufferSize, void *data)
         -> std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>;
     void copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer, vk::DeviceSize size);
     void updateUniformBuffer(std::uint32_t currentImg);
