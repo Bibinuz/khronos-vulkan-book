@@ -1,36 +1,28 @@
 #include "triapp.hpp"
-
-#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
-#define STB_IMAGE_IMPLEMENTATION
+#include "vulkan/vulkan.hpp"
+#include "vulkan/vulkan_enums.hpp"
+#include "vulkan/vulkan_structs.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <fstream>
-#include <glm/glm.hpp>
 #include <limits>
 #include <print>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-#include "GLFW/glfw3.h"
-#include "glm/ext/matrix_clip_space.hpp"
-#include "glm/ext/matrix_transform.hpp"
-#include "glm/ext/vector_float3.hpp"
-#include "glm/trigonometric.hpp"
+#define STB_IMAGE_IMPLEMENTATION
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <vulkan/vulkan_raii.hpp>
+
 #include "stb/stb_image.h"
 #include "transform.hpp"
 #include "vertex.hpp"
-#include "vulkan/vulkan.hpp"
-#include "vulkan/vulkan_core.h"
-#include "vulkan/vulkan_enums.hpp"
-#include "vulkan/vulkan_handles.hpp"
-#include "vulkan/vulkan_raii.hpp"
-#include "vulkan/vulkan_structs.hpp"
 
 namespace vke {
 
@@ -65,46 +57,27 @@ void TriApp::framebufferResizeCallback(GLFWwindow *window, [[maybe_unused]] int 
 
 // clang-format off
 void TriApp::initVulkan() {
-    createInstance();
-        std::println("Instance Created");
-    setUpDebugMessenger();
-        std::println("Setted up debug messages");
-    createSurface();
-        std::println("Surface Created");
-    pickPhysicalDevice();
-        std::println("Picked physical device");
-    createLogicalDevice();
-        std::println("Logical device Created");
-    createSwapChain();
-        std::println("Swapchain Created");
-    createImageViews();
-        std::println("Image views created");
-    createDescriptiorSetLayout();
-        std::println("Descriptor set layout created");
-    createGraphicsPipeline();
-        std::println("Graphics pipeline layout created");
-    createCommandPool();
-        std::println("Command pool created");
-    createTextureImage();
-        std::println("Texture image created");
-    createTextureImageView();
-        std::println("Texture image view created");
-    createTextureSampler();
-        std::println("Texture sampler created");
-    createVertexBuffer();
-        std::println("Vertex buffer created");
-    createIndexBuffer();
-        std::println("Index buffer created");
-    createUniformBuffers();
-        std::println("Uniform buffers created");
-    createDescriptorPool();
-        std::println("Descriptor pool created");
-    createDescriptorSets();
-        std::println("Descriptor sets created");   
-    createCommandBuffers();
-        std::println("Command buffer created");
-    createSyncObjects();
-        std::println("Sync objects created");
+    createInstance();               std::println("Instance Created");
+    setUpDebugMessenger();          std::println("Setted up debug messages");
+    createSurface();                std::println("Surface Created");
+    pickPhysicalDevice();           std::println("Picked physical device");
+    createLogicalDevice();          std::println("Logical device Created");
+    createSwapChain();              std::println("Swapchain Created");
+    createImageViews();             std::println("Image views created");
+    createDescriptiorSetLayout();   std::println("Descriptor set layout created");
+    createCommandPool();            std::println("Command pool created");
+    createDepthResources();         std::println("Depth resources created");
+    createGraphicsPipeline();       std::println("Graphics pipeline layout created");
+    createTextureImage();           std::println("Texture image created");
+    createTextureImageView();       std::println("Texture image view created");
+    createTextureSampler();         std::println("Texture sampler created");
+    createVertexBuffer();           std::println("Vertex buffer created");
+    createIndexBuffer();            std::println("Index buffer created");
+    createUniformBuffers();         std::println("Uniform buffers created");
+    createDescriptorPool();         std::println("Descriptor pool created");
+    createDescriptorSets();         std::println("Descriptor sets created");   
+    createCommandBuffers();         std::println("Command buffer created");
+    createSyncObjects();            std::println("Sync objects created");
 }
 // clang-format on
 
@@ -475,28 +448,29 @@ void TriApp::createImage(std::uint32_t widht, std::uint32_t height, vk::Format f
     image.bindMemory(imageMemory, 0);
 }
 
-auto TriApp::createImageView(const vk::Image &image, vk::Format format) -> vk::raii::ImageView {
-    constexpr auto subResRange = vk::ImageSubresourceRange{}
-                                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                                     .setLevelCount(1)
-                                     .setLayerCount(1);
-    const auto imageViewCI     = vk::ImageViewCreateInfo{}
-                                     .setImage(image)
-                                     .setViewType(vk::ImageViewType::e2D)
-                                     .setFormat(format)
-                                     .setSubresourceRange(subResRange);
+auto TriApp::createImageView(const vk::Image &image, vk::Format format,
+                             vk::ImageAspectFlags aspectFlags) -> vk::raii::ImageView {
+    const auto subResRange =
+        vk::ImageSubresourceRange{}.setAspectMask(aspectFlags).setLevelCount(1).setLayerCount(1);
+    const auto imageViewCI = vk::ImageViewCreateInfo{}
+                                 .setImage(image)
+                                 .setViewType(vk::ImageViewType::e2D)
+                                 .setFormat(format)
+                                 .setSubresourceRange(subResRange);
     return vk::raii::ImageView(m_device, imageViewCI);
 }
 
 void TriApp::createTextureImageView() {
-    m_textureImageView = createImageView(*m_textureImage, vk::Format::eR8G8B8A8Srgb);
+    m_textureImageView = createImageView(*m_textureImage, vk::Format::eR8G8B8A8Srgb,
+                                         vk::ImageAspectFlagBits::eColor);
 }
 
 void TriApp::createImageViews() {
     m_swapChainImageViews.clear();
     for (std::size_t i = 0; i < m_swapChainImages.size(); ++i) {
-        m_swapChainImageViews.emplace_back(
-            createImageView(m_swapChainImages[i], m_swapChainSurfaceFormat.format));
+        m_swapChainImageViews.emplace_back(createImageView(m_swapChainImages[i],
+                                                           m_swapChainSurfaceFormat.format,
+                                                           vk::ImageAspectFlagBits::eColor));
     }
 }
 
@@ -567,7 +541,7 @@ void TriApp::createGraphicsPipeline() {
                                    .setDepthClampEnable(vk::False)
                                    .setRasterizerDiscardEnable(vk::False)
                                    .setPolygonMode(vk::PolygonMode::eFill)
-                                   .setCullMode(vk::CullModeFlagBits::eBack)
+                                   .setCullMode(vk::CullModeFlagBits::eNone)
                                    .setFrontFace(vk::FrontFace::eCounterClockwise)
                                    .setDepthBiasEnable(vk::False)
                                    .setLineWidth(1.0f);
@@ -583,6 +557,13 @@ void TriApp::createGraphicsPipeline() {
                                      .setLogicOp(vk::LogicOp::eCopy)
                                      .setAttachmentCount(1)
                                      .setPAttachments(&colorBlendAttachment);
+    const auto depthStencilCI  = vk::PipelineDepthStencilStateCreateInfo{}
+                                     .setDepthTestEnable(vk::True)
+                                     .setDepthWriteEnable(vk::True)
+                                     .setDepthCompareOp(vk::CompareOp::eLess)
+                                     .setDepthBoundsTestEnable(vk::False)
+                                     .setStencilTestEnable(vk::False);
+
     const auto dynamicStates =
         std::vector<vk::DynamicState>{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
     const auto dynamicStateCI =
@@ -595,8 +576,10 @@ void TriApp::createGraphicsPipeline() {
                                       .setPushConstantRangeCount(0);
     m_pipelineLayout            = vk::raii::PipelineLayout(m_device, pipelineLayoutCI);
     const auto pipelineRenderingCI =
-        vk::PipelineRenderingCreateInfo{}.setColorAttachmentCount(1).setPColorAttachmentFormats(
-            &m_swapChainSurfaceFormat.format);
+        vk::PipelineRenderingCreateInfo{}
+            .setColorAttachmentCount(1)
+            .setPColorAttachmentFormats(&m_swapChainSurfaceFormat.format)
+            .setDepthAttachmentFormat(m_depthFormat);
     const auto pipelineCI = vk::GraphicsPipelineCreateInfo{}
                                 .setPNext(&pipelineRenderingCI)
                                 .setStageCount(2)
@@ -607,6 +590,7 @@ void TriApp::createGraphicsPipeline() {
                                 .setPRasterizationState(&rasterizerCI)
                                 .setPMultisampleState(&multisampling)
                                 .setPColorBlendState(&colorBlendingCI)
+                                .setPDepthStencilState(&depthStencilCI)
                                 .setPDynamicState(&dynamicStateCI)
                                 .setLayout(m_pipelineLayout)
                                 .setRenderPass(nullptr);
@@ -768,8 +752,8 @@ void TriApp::updateUniformBuffer(std::uint32_t currentImg) {
         std::chrono::duration<float>(currentTime - startTime).count();
     auto ubo = UniformModelObject{};
     ubo.model =
-        glm::rotate(glm::mat4(1.0f), /* time * */ glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(1.0f, 2.0f, 3.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                            glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.proj = glm::perspective(glm::radians(70.0f),
                                 static_cast<float>(m_swapChainExtent.width) /
@@ -804,6 +788,34 @@ void TriApp::createCommandBuffers() {
                                      .setLevel(vk::CommandBufferLevel::ePrimary)
                                      .setCommandBufferCount(MAX_FRAMES_IN_FLIGHT);
     m_commandBuffers           = vk::raii::CommandBuffers(m_device, commandBufferAI);
+}
+
+auto TriApp::findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
+                                 vk::FormatFeatureFlags features) -> vk::Format {
+    for (const auto format : candidates) {
+        const auto props = m_physicalDevice.getFormatProperties(format);
+        if (tiling == vk::ImageTiling::eLinear &&
+            (props.linearTilingFeatures & features) == features)
+            return format;
+        if (tiling == vk::ImageTiling::eOptimal &&
+            (props.optimalTilingFeatures & features) == features)
+            return format;
+    }
+    throw std::runtime_error("No supported format found!");
+}
+
+void TriApp::createDepthResources() {
+    const auto candidates = std::vector{vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint,
+                                        vk::Format::eD24UnormS8Uint};
+    m_depthFormat         = findSupportedFormat(candidates, vk::ImageTiling::eOptimal,
+                                                vk::FormatFeatureFlagBits::eDepthStencilAttachment);
+    [[maybe_unused]] const auto hasStencil = m_depthFormat == vk::Format::eD32SfloatS8Uint ||
+                                             m_depthFormat == vk::Format::eD24UnormS8Uint;
+    createImage(m_swapChainExtent.width, m_swapChainExtent.height, m_depthFormat,
+                vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment,
+                vk::MemoryPropertyFlagBits::eDeviceLocal, m_depthImage, m_depthImageMemory);
+    m_depthImageView =
+        createImageView(m_depthImage, m_depthFormat, vk::ImageAspectFlagBits::eDepth);
 }
 
 void TriApp::createSyncObjects() {
@@ -842,24 +854,39 @@ auto TriApp::readFile(const std::string &fileName) -> std::vector<char> {
 void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
     auto &commandBuffer = m_commandBuffers[m_frameIndex];
     commandBuffer.begin({});
-    transition_image_layout(imageIndex, vk::ImageLayout::eUndefined,
-                            vk::ImageLayout::eColorAttachmentOptimal, {},
-                            vk::AccessFlagBits2::eColorAttachmentWrite,
-                            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-                            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
-    constexpr auto clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
-    const auto attachmentInfo = vk::RenderingAttachmentInfo{}
-                                    .setImageView(m_swapChainImageViews[imageIndex])
-                                    .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-                                    .setLoadOp(vk::AttachmentLoadOp::eClear)
-                                    .setStoreOp(vk::AttachmentStoreOp::eStore)
-                                    .setClearValue(clearColor);
+    transition_image_layout(
+        m_swapChainImages[imageIndex], vk::ImageLayout::eUndefined,
+        vk::ImageLayout::eColorAttachmentOptimal, {}, vk::AccessFlagBits2::eColorAttachmentWrite,
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::ImageAspectFlagBits::eColor);
+    constexpr auto stageFlags = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                                vk::PipelineStageFlagBits2::eLateFragmentTests;
+    transition_image_layout(*m_depthImage, vk::ImageLayout::eUndefined,
+                            vk::ImageLayout::eDepthAttachmentOptimal,
+                            vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+                            vk::AccessFlagBits2::eDepthStencilAttachmentWrite, stageFlags,
+                            stageFlags, vk::ImageAspectFlagBits::eDepth);
+    constexpr auto clearColor      = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    constexpr auto clearDepth      = vk::ClearDepthStencilValue(1.0f, 0);
+    const auto attachmentInfo      = vk::RenderingAttachmentInfo{}
+                                         .setImageView(m_swapChainImageViews[imageIndex])
+                                         .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+                                         .setLoadOp(vk::AttachmentLoadOp::eClear)
+                                         .setStoreOp(vk::AttachmentStoreOp::eStore)
+                                         .setClearValue(clearColor);
+    const auto depthAttachmentInfo = vk::RenderingAttachmentInfo{}
+                                         .setImageView(m_depthImageView)
+                                         .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+                                         .setLoadOp(vk::AttachmentLoadOp::eClear)
+                                         .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+                                         .setClearValue(clearDepth);
     const auto renderingInfo =
         vk::RenderingInfo{}
             .setRenderArea(vk::Rect2D{}.setOffset({0, 0}).setExtent(m_swapChainExtent))
             .setLayerCount(1)
             .setColorAttachmentCount(1)
-            .setPColorAttachments(&attachmentInfo);
+            .setPColorAttachments(&attachmentInfo)
+            .setPDepthAttachment(&depthAttachmentInfo);
     commandBuffer.beginRendering(renderingInfo);
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
     commandBuffer.bindVertexBuffers(0, *m_vertexBuffer, {0});
@@ -877,40 +904,39 @@ void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
     // Num of vertices and instances to draw
     commandBuffer.drawIndexed(indices.size(), 1, 0, 0, 0);
     commandBuffer.endRendering();
-    transition_image_layout(imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
-                            vk::ImageLayout::ePresentSrcKHR,
-                            vk::AccessFlagBits2::eColorAttachmentWrite, {},
-                            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-                            vk::PipelineStageFlagBits2::eBottomOfPipe);
+    transition_image_layout(
+        m_swapChainImages[imageIndex], vk::ImageLayout::eColorAttachmentOptimal,
+        vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, {},
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        vk::PipelineStageFlagBits2::eBottomOfPipe, vk::ImageAspectFlagBits::eColor);
     commandBuffer.end();
 }
 
-void TriApp::transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout old_layout,
+void TriApp::transition_image_layout(vk::Image image, vk::ImageLayout old_layout,
                                      vk::ImageLayout new_layout, vk::AccessFlags2 src_access_mask,
                                      vk::AccessFlags2 dst_acces_mask,
                                      vk::PipelineStageFlags2 src_stage_mask,
-                                     vk::PipelineStageFlags2 dst_stage_mask) {
-    constexpr auto subResRange = vk::ImageSubresourceRange{}
-                                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                                     .setBaseMipLevel(0)
-                                     .setLevelCount(1)
-                                     .setBaseArrayLayer(0)
-                                     .setLayerCount(1);
-    const auto barrier         = vk::ImageMemoryBarrier2{}
-                                     .setSrcStageMask(src_stage_mask)
-                                     .setSrcAccessMask(src_access_mask)
-                                     .setDstStageMask(dst_stage_mask)
-                                     .setDstAccessMask(dst_acces_mask)
-                                     .setOldLayout(old_layout)
-                                     .setNewLayout(new_layout)
-                                     .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-                                     .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-                                     .setImage(m_swapChainImages[imageIndex])
-                                     .setSubresourceRange(subResRange);
-    const auto dependencyInfo  = vk::DependencyInfo{}
-                                     .setDependencyFlags({})
-                                     .setImageMemoryBarrierCount(1)
-                                     .setPImageMemoryBarriers(&barrier);
+                                     vk::PipelineStageFlags2 dst_stage_mask,
+                                     vk::ImageAspectFlags image_aspect_flags) {
+    const auto subResRange    = vk::ImageSubresourceRange{}
+                                    .setAspectMask(image_aspect_flags)
+                                    .setLevelCount(1)
+                                    .setLayerCount(1);
+    const auto barrier        = vk::ImageMemoryBarrier2{}
+                                    .setSrcStageMask(src_stage_mask)
+                                    .setSrcAccessMask(src_access_mask)
+                                    .setDstStageMask(dst_stage_mask)
+                                    .setDstAccessMask(dst_acces_mask)
+                                    .setOldLayout(old_layout)
+                                    .setNewLayout(new_layout)
+                                    .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                                    .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                                    .setImage(image)
+                                    .setSubresourceRange(subResRange);
+    const auto dependencyInfo = vk::DependencyInfo{}
+                                    .setDependencyFlags({})
+                                    .setImageMemoryBarrierCount(1)
+                                    .setPImageMemoryBarriers(&barrier);
     m_commandBuffers[m_frameIndex].pipelineBarrier2(dependencyInfo);
 }
 
@@ -919,6 +945,7 @@ void TriApp::recreateSwapChain() {
     cleanupSwapChain();
     createSwapChain();
     createImageViews();
+    createDepthResources();
 }
 
 auto TriApp::beginSingleTimeCommands() -> vk::raii::CommandBuffer {

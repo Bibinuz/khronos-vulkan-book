@@ -21,6 +21,7 @@ target_compile_definitions(glm PUBLIC
   GLM_FORCE_SILENT_WARNINGS
   GLM_ENABLE_EXPERIMENTAL
   GLM_EXT_INCLUDED
+  GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 )
 
 # add Vulkan-Headers to build tree

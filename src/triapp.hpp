@@ -3,6 +3,7 @@
 #include "vulkan/vk_platform.h"
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_enums.hpp"
+#include "vulkan/vulkan_handles.hpp"
 #include "vulkan/vulkan_structs.hpp"
 #include <GLFW/glfw3.h>
 #include <print>
@@ -53,31 +54,31 @@ class TriApp {
     void createTextureImage();
     void createTextureImageView();
     void createTextureSampler();
+    void createDepthResources();
 
     // Helper functions
-    [[nodiscard]] auto getRequiredInstanceExtensions() -> std::vector<const char *>;
-    [[nodiscard]] auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
-    [[nodiscard]] auto
-    chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats)
+    auto getRequiredInstanceExtensions() -> std::vector<const char *>;
+    auto isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) -> bool;
+    auto chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats)
         -> vk::SurfaceFormatKHR;
-    [[nodiscard]] auto chooseSwapPresentMode(const std::vector<vk::PresentModeKHR> &availableModes)
+    auto chooseSwapPresentMode(const std::vector<vk::PresentModeKHR> &availableModes)
         -> vk::PresentModeKHR;
-    [[nodiscard]] auto chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) //
+    auto chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) //
         -> vk::Extent2D;
-    [[nodiscard]] auto chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilities) //
+    auto chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &capabilities) //
         -> std::uint32_t;
-    [[nodiscard]] static auto readFile(const std::string &filename) -> std::vector<char>;
-    [[nodiscard]] auto createShaderModule(std::span<const char> conde)
-        -> const vk::raii::ShaderModule;
-    [[nodiscard]] auto findMemoryType(std::uint32_t typeFilter, vk::MemoryPropertyFlags properties)
+    static auto readFile(const std::string &filename) -> std::vector<char>;
+    auto createShaderModule(std::span<const char> conde) -> const vk::raii::ShaderModule;
+    auto findMemoryType(std::uint32_t typeFilter, vk::MemoryPropertyFlags properties)
         -> std::uint32_t;
     void pickPhysicalDevice();
     void recordCommandBuffer(std::uint32_t imageIndex);
-    void transition_image_layout(std::uint32_t imageIndex, vk::ImageLayout old_layout,
+    void transition_image_layout(vk::Image image, vk::ImageLayout old_layout,
                                  vk::ImageLayout new_layout, vk::AccessFlags2 src_access_mask,
                                  vk::AccessFlags2 dst_acces_mask,
                                  vk::PipelineStageFlags2 src_stage_mask,
-                                 vk::PipelineStageFlags2 dst_stage_mask);
+                                 vk::PipelineStageFlags2 dst_stage_mask,
+                                 vk::ImageAspectFlags image_aspect_flags);
     void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                       vk::MemoryPropertyFlags properties, vk::raii::Buffer &buffer,
                       vk::raii::DeviceMemory &bufferMemory);
@@ -96,7 +97,10 @@ class TriApp {
                                vk::ImageLayout newLayout);
     void copyBufferToImage(const vk::raii::Buffer &buffer, vk::raii::Image &image,
                            std::uint32_t widht, std::uint32_t height);
-    auto createImageView(const vk::Image &image, vk::Format format) -> vk::raii::ImageView;
+    auto createImageView(const vk::Image &image, vk::Format format,
+                         vk::ImageAspectFlags aspectFlags) -> vk::raii::ImageView;
+    auto findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
+                             vk::FormatFeatureFlags features) -> vk::Format;
 
     // Cleanup functions
     void cleanup();
@@ -136,6 +140,9 @@ class TriApp {
     vk::raii::DeviceMemory m_textureImageMemory         = nullptr;
     vk::raii::ImageView m_textureImageView              = nullptr;
     vk::raii::Sampler m_textureSampler                  = nullptr;
+    vk::raii::Image m_depthImage                        = nullptr;
+    vk::raii::DeviceMemory m_depthImageMemory           = nullptr;
+    vk::raii::ImageView m_depthImageView                = nullptr;
     vk::raii::Context m_context{};
     std::vector<vk::raii::Buffer> m_uniformBuffers{};
     std::vector<vk::raii::DeviceMemory> m_uniformBuffersMemory{};
@@ -153,6 +160,7 @@ class TriApp {
     vk::PhysicalDeviceFeatures m_deviceFeatures{};
     vk::Extent2D m_swapChainExtent{};
     vk::SurfaceFormatKHR m_swapChainSurfaceFormat{};
+    vk::Format m_depthFormat{};
     bool m_frameBufferResized = false;
 };
 } // namespace vke

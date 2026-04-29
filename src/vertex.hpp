@@ -9,7 +9,7 @@
 namespace vke {
 
 struct Vertex {
-    glm::vec2 pos{};
+    glm::vec3 pos{};
     glm::vec3 color{};
     glm::vec2 texCoord{};
 
@@ -23,7 +23,7 @@ struct Vertex {
         return std::array{vk::VertexInputAttributeDescription{}
                               .setLocation(0)
                               .setBinding(0)
-                              .setFormat(vk::Format::eR32G32Sfloat)
+                              .setFormat(vk::Format::eR32G32B32Sfloat)
                               .setOffset(offsetof(Vertex, pos)),
                           vk::VertexInputAttributeDescription{}
                               .setLocation(1)
@@ -40,14 +40,20 @@ struct Vertex {
 
 // clang-format off
 inline constexpr auto vertices = std::array{
-    Vertex{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.5f, 0.0f}},
-    Vertex{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    Vertex{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    Vertex{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
+    Vertex{{-0.5f, -0.5f, 0.0}, {1.0f, 0.0f, 0.0f}, {0.5f, 0.0f}},
+    Vertex{{0.5f, -0.5f, 0.0}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    Vertex{{0.5f, 0.5f, 0.0}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    Vertex{{-0.5f, 0.5f, 0.0}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}, 
+
+    Vertex{{-0.5f, -0.5f, -0.5}, {1.0f, 0.0f, 0.0f}, {0.5f, 0.0f}},
+    Vertex{{0.5f, -0.5f, -0.5}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    Vertex{{0.5f, 0.5f, -0.5}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    Vertex{{-0.5f, 0.5f, -0.5}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
 };
 
 inline constexpr auto indices = std::array{
-    0u, 1u, 2u, 2u, 3u, 0u
+    0u, 1u, 2u, 2u, 3u, 0u,
+    4u, 5u, 6u, 6u, 7u, 4u
 };
 // clang-format on
 } // namespace vke
