@@ -7,6 +7,7 @@
 #include "vulkan/vulkan_handles.hpp"
 #include "vulkan/vulkan_structs.hpp"
 #include <GLFW/glfw3.h>
+#include <cstdint>
 #include <print>
 #include <string>
 #include <utility>
@@ -91,22 +92,25 @@ class TriApp {
         -> std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>;
     void copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer, vk::DeviceSize size);
     void updateUniformBuffer(std::uint32_t currentImg);
-    void createImage(std::uint32_t widht, std::uint32_t height, vk::Format format,
-                     vk::ImageTiling tiling, vk::ImageUsageFlags usage,
+    void createImage(std::uint32_t widht, std::uint32_t height, std::uint32_t mipLevels,
+                     vk::Format format, vk::ImageTiling tiling, vk::ImageUsageFlags usage,
                      vk::MemoryPropertyFlags properties, vk::raii::Image &image,
                      vk::raii::DeviceMemory &imageMemory);
     static void framebufferResizeCallback(GLFWwindow *window, int width, int height);
     auto beginSingleTimeCommands() -> vk::raii::CommandBuffer;
     void endSingleTimeCommands(vk::raii::CommandBuffer &commandBuffer);
     void transitionImageLayout(const vk::raii::Image &image, vk::ImageLayout oldLayout,
-                               vk::ImageLayout newLayout);
+                               vk::ImageLayout newLayout, std::uint32_t mipLevels);
     void copyBufferToImage(const vk::raii::Buffer &buffer, vk::raii::Image &image,
                            std::uint32_t widht, std::uint32_t height);
     auto createImageView(const vk::Image &image, vk::Format format,
-                         vk::ImageAspectFlags aspectFlags) -> vk::raii::ImageView;
+                         vk::ImageAspectFlags aspectFlags, std::uint32_t mipLevels)
+        -> vk::raii::ImageView;
     auto findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
                              vk::FormatFeatureFlags features) -> vk::Format;
     void loadModel();
+    void generateMipmaps(vk::raii::Image &image, vk::Format imageFormat, std::int32_t texWidth,
+                         std::int32_t texHeight, std::uint32_t mipLevels);
 
     // Cleanup functions
     void cleanup();
@@ -170,5 +174,6 @@ class TriApp {
     bool m_frameBufferResized = false;
     std::vector<Vertex> m_vertices;
     std::vector<std::uint32_t> m_indices;
+    std::uint32_t m_mipLevels;
 };
 } // namespace vke

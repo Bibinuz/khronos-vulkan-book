@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <limits>
@@ -400,6 +401,8 @@ void TriApp::createTextureImage() {
     const auto pixels =
         stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     const auto imageSize = vk::DeviceSize(texWidth * texHeight * 4);
+    m_mipLevels =
+        static_cast<std::uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
     if (!pixels) {
         throw std::runtime_error("Failed to load texture image");
     }
@@ -416,27 +419,95 @@ void TriApp::createTextureImage() {
     // Create image
     constexpr auto format = vk::Format::eR8G8B8A8Srgb;
     constexpr auto tiling = vk::ImageTiling::eOptimal;
-    constexpr auto usageI = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+    constexpr auto usageI = vk::ImageUsageFlagBits::eTransferDst |
+                            vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc;
     constexpr auto proper = vk::MemoryPropertyFlagBits::eDeviceLocal;
-    createImage((std::uint32_t)texWidth, (std::uint32_t)texHeight, format, tiling, usageI, proper,
-                m_textureImage, m_textureImageMemory);
+    createImage((std::uint32_t)texWidth, (std::uint32_t)texHeight, m_mipLevels, format, tiling,
+                usageI, proper, m_textureImage, m_textureImageMemory);
     transitionImageLayout(m_textureImage, vk::ImageLayout::eUndefined,
-                          vk::ImageLayout::eTransferDstOptimal);
+                          vk::ImageLayout::eTransferDstOptimal, m_mipLevels);
     copyBufferToImage(stagingBuffer, m_textureImage, static_cast<std::uint32_t>(texWidth),
                       static_cast<std::uint32_t>(texHeight));
-    transitionImageLayout(m_textureImage, vk::ImageLayout::eTransferDstOptimal,
-                          vk::ImageLayout::eShaderReadOnlyOptimal);
+    // transitionImageLayout(m_textureImage, vk::ImageLayout::eTransferDstOptimal,
+    //                       vk::ImageLayout::eShaderReadOnlyOptimal, m_mipLevels);
+    generateMipmaps(m_textureImage, vk::Format::eR8G8B8A8Srgb, texWidth, texHeight, m_mipLevels);
 }
 
-void TriApp::createImage(std::uint32_t widht, std::uint32_t height, vk::Format format,
-                         vk::ImageTiling tiling, vk::ImageUsageFlags usage,
+void TriApp::generateMipmaps(vk::raii::Image &image, vk::Format imageFormat, std::int32_t texWidth,
+                             std::int32_t texHeight, std::uint32_t mipLevels) {
+    auto formatProperties = m_physicalDevice.getFormatProperties(imageFormat);
+    if (!(formatProperties.optimalTilingFeatures &
+          vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
+        throw std::runtime_error("texture image format does not support linear blitting!");
+    }
+    auto commandBuffer         = beginSingleTimeCommands();
+    constexpr auto subResRange = vk::ImageSubresourceRange{}
+                                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                     .setBaseArrayLayer(0)
+                                     .setLayerCount(1)
+                                     .setLevelCount(1);
+    auto barrier               = vk::ImageMemoryBarrier{}
+                                     .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+                                     .setDstAccessMask(vk::AccessFlagBits::eTransferRead)
+                                     .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+                                     .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+                                     .setSrcQueueFamilyIndex(vk::QueueFamilyIgnored)
+                                     .setDstQueueFamilyIndex(vk::QueueFamilyIgnored)
+                                     .setImage(image)
+                                     .setSubresourceRange(subResRange);
+    auto mipWidth              = texWidth;
+    auto mipHeight             = texHeight;
+    for (std::uint32_t i = 1; i < mipLevels; i++) {
+        barrier.subresourceRange.setBaseMipLevel(i - 1);
+        barrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+            .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+            .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+            .setDstAccessMask(vk::AccessFlagBits::eTransferRead);
+        commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                      vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, barrier);
+        auto offsets     = vk::ArrayWrapper1D<vk::Offset3D, 2>{};
+        auto dstOffsets  = vk::ArrayWrapper1D<vk::Offset3D, 2>{};
+        offsets.at(0)    = vk::Offset3D(0, 0, 0);
+        offsets.at(1)    = vk::Offset3D(mipWidth, mipHeight, 1);
+        dstOffsets.at(0) = vk::Offset3D(0, 0, 0);
+        dstOffsets.at(1) =
+            vk::Offset3D(mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1);
+        auto blit = vk::ImageBlit{}
+                        .setSrcSubresource({vk::ImageAspectFlagBits::eColor, i - 1, 0, 1})
+                        .setSrcOffsets(offsets)
+                        .setDstSubresource({vk::ImageAspectFlagBits::eColor, i, 0, 1})
+                        .setDstOffsets(dstOffsets);
+        commandBuffer.blitImage(image, vk::ImageLayout::eTransferSrcOptimal, image,
+                                vk::ImageLayout::eTransferDstOptimal, {blit}, vk::Filter::eLinear);
+        barrier.setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
+            .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+            .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
+            .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+        commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                      vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {},
+                                      barrier);
+        mipWidth  = mipWidth > 1 ? mipWidth / 2 : mipWidth;
+        mipHeight = mipHeight > 1 ? mipHeight / 2 : mipHeight;
+    }
+    barrier.subresourceRange.setBaseMipLevel(mipLevels - 1);
+    barrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+    commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                  vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {}, barrier);
+    endSingleTimeCommands(commandBuffer);
+}
+
+void TriApp::createImage(std::uint32_t widht, std::uint32_t height, std::uint32_t mipLevels,
+                         vk::Format format, vk::ImageTiling tiling, vk::ImageUsageFlags usage,
                          vk::MemoryPropertyFlags properties, vk::raii::Image &image,
                          vk::raii::DeviceMemory &imageMemory) {
     const auto imageCI         = vk::ImageCreateInfo{}
                                      .setImageType(vk::ImageType::e2D)
                                      .setFormat(format)
                                      .setExtent(vk::Extent3D{widht, height, 1})
-                                     .setMipLevels(1)
+                                     .setMipLevels(mipLevels)
                                      .setArrayLayers(1)
                                      .setSamples(vk::SampleCountFlagBits::e1)
                                      .setTiling(tiling)
@@ -453,9 +524,12 @@ void TriApp::createImage(std::uint32_t widht, std::uint32_t height, vk::Format f
 }
 
 auto TriApp::createImageView(const vk::Image &image, vk::Format format,
-                             vk::ImageAspectFlags aspectFlags) -> vk::raii::ImageView {
-    const auto subResRange =
-        vk::ImageSubresourceRange{}.setAspectMask(aspectFlags).setLevelCount(1).setLayerCount(1);
+                             vk::ImageAspectFlags aspectFlags, std::uint32_t mipLevels)
+    -> vk::raii::ImageView {
+    const auto subResRange = vk::ImageSubresourceRange{}
+                                 .setAspectMask(aspectFlags)
+                                 .setLevelCount(mipLevels)
+                                 .setLayerCount(1);
     const auto imageViewCI = vk::ImageViewCreateInfo{}
                                  .setImage(image)
                                  .setViewType(vk::ImageViewType::e2D)
@@ -466,7 +540,7 @@ auto TriApp::createImageView(const vk::Image &image, vk::Format format,
 
 void TriApp::createTextureImageView() {
     m_textureImageView = createImageView(*m_textureImage, vk::Format::eR8G8B8A8Srgb,
-                                         vk::ImageAspectFlagBits::eColor);
+                                         vk::ImageAspectFlagBits::eColor, m_mipLevels);
 }
 
 void TriApp::createImageViews() {
@@ -474,7 +548,7 @@ void TriApp::createImageViews() {
     for (std::size_t i = 0; i < m_swapChainImages.size(); ++i) {
         m_swapChainImageViews.emplace_back(createImageView(m_swapChainImages[i],
                                                            m_swapChainSurfaceFormat.format,
-                                                           vk::ImageAspectFlagBits::eColor));
+                                                           vk::ImageAspectFlagBits::eColor, 1));
     }
 }
 
@@ -487,10 +561,13 @@ void TriApp::createTextureSampler() {
                                 .setAddressModeU(vk::SamplerAddressMode::eRepeat)
                                 .setAddressModeV(vk::SamplerAddressMode::eRepeat)
                                 .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+                                .setMipLodBias(0.0f)
                                 .setAnisotropyEnable(vk::True)
                                 .setMaxAnisotropy(properties.limits.maxSamplerAnisotropy)
                                 .setCompareEnable(vk::False)
                                 .setCompareOp(vk::CompareOp::eAlways)
+                                .setMinLod(0.0f)
+                                .setMaxLod(vk::LodClampNone)
                                 .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
                                 .setUnnormalizedCoordinates(vk::False);
     m_textureSampler      = vk::raii::Sampler(m_device, samplerCI);
@@ -843,11 +920,11 @@ void TriApp::createDepthResources() {
                                                 vk::FormatFeatureFlagBits::eDepthStencilAttachment);
     [[maybe_unused]] const auto hasStencil = m_depthFormat == vk::Format::eD32SfloatS8Uint ||
                                              m_depthFormat == vk::Format::eD24UnormS8Uint;
-    createImage(m_swapChainExtent.width, m_swapChainExtent.height, m_depthFormat,
+    createImage(m_swapChainExtent.width, m_swapChainExtent.height, 1, m_depthFormat,
                 vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment,
                 vk::MemoryPropertyFlagBits::eDeviceLocal, m_depthImage, m_depthImageMemory);
     m_depthImageView =
-        createImageView(m_depthImage, m_depthFormat, vk::ImageAspectFlagBits::eDepth);
+        createImageView(m_depthImage, m_depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
 }
 
 void TriApp::createSyncObjects() {
@@ -1001,15 +1078,19 @@ void TriApp::endSingleTimeCommands(vk::raii::CommandBuffer &commandBuffer) {
 }
 
 void TriApp::transitionImageLayout(const vk::raii::Image &image, vk::ImageLayout oldLayout,
-                                   vk::ImageLayout newLayout) {
-    auto commandBuffer = beginSingleTimeCommands();
-    auto barrier       = vk::ImageMemoryBarrier{}
-                             .setOldLayout(oldLayout)
-                             .setNewLayout(newLayout)
-                             .setImage(image)
-                             .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-    auto sourceStage   = vk::PipelineStageFlags{};
-    auto destinStage   = vk::PipelineStageFlags{};
+                                   vk::ImageLayout newLayout, std::uint32_t mipLevels) {
+    auto commandBuffer     = beginSingleTimeCommands();
+    const auto subResRange = vk::ImageSubresourceRange{}
+                                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                 .setLevelCount(mipLevels)
+                                 .setLayerCount(1);
+    auto barrier           = vk::ImageMemoryBarrier{}
+                                 .setOldLayout(oldLayout)
+                                 .setNewLayout(newLayout)
+                                 .setImage(image)
+                                 .setSubresourceRange(subResRange);
+    auto sourceStage       = vk::PipelineStageFlags{};
+    auto destinStage       = vk::PipelineStageFlags{};
     if (oldLayout == vk::ImageLayout::eUndefined &&
         newLayout == vk::ImageLayout::eTransferDstOptimal) {
         barrier.setSrcAccessMask({}).setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
