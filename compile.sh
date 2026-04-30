@@ -9,3 +9,6 @@ cp ./src/shaders/slang.spv build/shaders/slang.spv
 # Copy textures folder
 mkdir -p build/textures
 cp -r ./src/textures/* build/textures/
+
+mkdir -p build/models
+cp -r ./src/models/* build/models

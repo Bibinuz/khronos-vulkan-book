@@ -12,15 +12,18 @@
 #include <print>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "stb/stb_image.h"
+#include "tiny_obj_loader.h"
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
-#include "stb/stb_image.h"
 #include "transform.hpp"
 #include "vertex.hpp"
 
@@ -71,6 +74,7 @@ void TriApp::initVulkan() {
     createTextureImage();           std::println("Texture image created");
     createTextureImageView();       std::println("Texture image view created");
     createTextureSampler();         std::println("Texture sampler created");
+    loadModel();                    std::println("Model loaded");
     createVertexBuffer();           std::println("Vertex buffer created");
     createIndexBuffer();            std::println("Index buffer created");
     createUniformBuffers();         std::println("Uniform buffers created");
@@ -394,7 +398,7 @@ void TriApp::createSwapChain() {
 void TriApp::createTextureImage() {
     std::int32_t texWidth{}, texHeight{}, texChannels{};
     const auto pixels =
-        stbi_load("textures/texture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     const auto imageSize = vk::DeviceSize(texWidth * texHeight * 4);
     if (!pixels) {
         throw std::runtime_error("Failed to load texture image");
@@ -609,11 +613,39 @@ void TriApp::createVertexBuffer() {
 }
 */
 
+void TriApp::loadModel() {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+        throw std::runtime_error(warn + err);
+    }
+    std::unordered_map<Vertex, std::uint32_t> uniqueVertices{};
+    for (const auto &shape : shapes) {
+        for (const auto &index : shape.mesh.indices) {
+            Vertex vertex{};
+            vertex.pos      = {attrib.vertices[size_t(3 * index.vertex_index + 0)],
+                               attrib.vertices[size_t(3 * index.vertex_index + 1)],
+                               attrib.vertices[size_t(3 * index.vertex_index + 2)]};
+            vertex.texCoord = {attrib.texcoords[size_t(2 * index.texcoord_index + 0)],
+                               1.0f - attrib.texcoords[size_t(2 * index.texcoord_index + 1)]};
+            vertex.color    = {1.0f, 1.0f, 1.0f};
+
+            if (uniqueVertices.count(vertex) == 0) {
+                uniqueVertices[vertex] = static_cast<std::uint32_t>(m_vertices.size());
+                m_vertices.push_back(vertex);
+            }
+            m_indices.push_back(uniqueVertices[vertex]);
+        }
+    }
+}
+
 void TriApp::createIndexBuffer() {
-    const auto bufferSize = vk::DeviceSize{sizeof(indices[0]) * indices.size()};
+    const auto bufferSize = vk::DeviceSize{sizeof(m_indices[0]) * m_indices.size()};
     // Create staging buffer
     auto [stagingBuffer, stagingBufferMemory] =
-        createStagingBuffer(bufferSize, (void *)indices.data());
+        createStagingBuffer(bufferSize, (void *)m_indices.data());
     // create index buffer
     constexpr auto usageIBO =
         vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst;
@@ -623,10 +655,10 @@ void TriApp::createIndexBuffer() {
 }
 
 void TriApp::createVertexBuffer() {
-    const auto bufferSize = vk::DeviceSize{sizeof(vertices[0]) * vertices.size()};
+    const auto bufferSize = vk::DeviceSize{sizeof(m_vertices[0]) * m_vertices.size()};
     // Create staging buffer
     auto [stagingBuffer, stagingBufferMemory] =
-        createStagingBuffer(bufferSize, (void *)vertices.data());
+        createStagingBuffer(bufferSize, (void *)m_vertices.data());
     // create vertex buffer
     constexpr auto usageVBO =
         vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst;
@@ -752,7 +784,7 @@ void TriApp::updateUniformBuffer(std::uint32_t currentImg) {
         std::chrono::duration<float>(currentTime - startTime).count();
     auto ubo = UniformModelObject{};
     ubo.model =
-        glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::rotate(glm::mat4(1.0f), time * glm::radians(30.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                            glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.proj = glm::perspective(glm::radians(70.0f),
@@ -902,7 +934,7 @@ void TriApp::recordCommandBuffer(std::uint32_t imageIndex) {
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0,
                                      *m_descriptorSets[m_frameIndex], nullptr);
     // Num of vertices and instances to draw
-    commandBuffer.drawIndexed(indices.size(), 1, 0, 0, 0);
+    commandBuffer.drawIndexed(std::uint32_t(m_indices.size()), 1, 0, 0, 0);
     commandBuffer.endRendering();
     transition_image_layout(
         m_swapChainImages[imageIndex], vk::ImageLayout::eColorAttachmentOptimal,

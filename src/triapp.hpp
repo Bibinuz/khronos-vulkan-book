@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vertex.hpp"
 #include "vulkan/vk_platform.h"
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_enums.hpp"
@@ -7,6 +8,7 @@
 #include "vulkan/vulkan_structs.hpp"
 #include <GLFW/glfw3.h>
 #include <print>
+#include <string>
 #include <utility>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
@@ -19,10 +21,13 @@ constexpr bool enableValidationLayers = false;
 constexpr bool enableValidationLayers = true;
 #endif
 
-constexpr auto WIDTH                             = 1920;
-constexpr auto HEIGHT                            = 1920;
+constexpr auto WIDTH                             = 1920u;
+constexpr auto HEIGHT                            = 1920u;
 constexpr std::uint32_t MAX_FRAMES_IN_FLIGHT     = 2;
 const std::vector<char const *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
+
+const std::string MODEL_PATH                     = "models/viking_room.obj";
+const std::string TEXTURE_PATH                   = "textures/viking_room.png";
 
 class TriApp {
   public:
@@ -101,6 +106,7 @@ class TriApp {
                          vk::ImageAspectFlags aspectFlags) -> vk::raii::ImageView;
     auto findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
                              vk::FormatFeatureFlags features) -> vk::Format;
+    void loadModel();
 
     // Cleanup functions
     void cleanup();
@@ -162,5 +168,7 @@ class TriApp {
     vk::SurfaceFormatKHR m_swapChainSurfaceFormat{};
     vk::Format m_depthFormat{};
     bool m_frameBufferResized = false;
+    std::vector<Vertex> m_vertices;
+    std::vector<std::uint32_t> m_indices;
 };
 } // namespace vke

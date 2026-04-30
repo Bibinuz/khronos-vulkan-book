@@ -1,10 +1,13 @@
 #pragma once
 
+#include "glm/ext/vector_float3.hpp"
 #include "vulkan/vulkan_enums.hpp"
 #include "vulkan/vulkan_structs.hpp"
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <glm/glm.hpp>
+#include <glm/gtx/hash.hpp>
 
 namespace vke {
 
@@ -36,9 +39,14 @@ struct Vertex {
                               .setFormat(vk::Format::eR32G32Sfloat)
                               .setOffset(offsetof(Vertex, texCoord))};
     }
+
+    bool operator==(const Vertex &other) const {
+        return pos == other.pos && color == other.color && texCoord == other.texCoord;
+    }
 };
 
 // clang-format off
+/*
 inline constexpr auto vertices = std::array{
     Vertex{{-0.5f, -0.5f, 0.0}, {1.0f, 0.0f, 0.0f}, {0.5f, 0.0f}},
     Vertex{{0.5f, -0.5f, 0.0}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
@@ -55,5 +63,13 @@ inline constexpr auto indices = std::array{
     0u, 1u, 2u, 2u, 3u, 0u,
     4u, 5u, 6u, 6u, 7u, 4u
 };
+*/
 // clang-format on
 } // namespace vke
+
+template <> struct std::hash<vke::Vertex> {
+    size_t operator()(vke::Vertex const &vertex) const {
+        return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
+               (hash<glm::vec2>()(vertex.texCoord) << 1);
+    }
+};
